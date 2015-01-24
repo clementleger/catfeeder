@@ -1,5 +1,6 @@
 #include <Servo.h>
 #include <LiquidCrystal.h>
+#include <DS1302.h>
 
 #define PIN_SENSOR  	A0
 #define PIN_KEYS	A1
@@ -17,7 +18,7 @@
 #define SERVO_FIX_VALUE		109
 #define SERVO_MOVE_VALUE	50
 
-#define FEEDING_SLOT_COUNT	10
+#define FEEDING_SLOT_COUNT	4
 
 #define HOURS_PER_DAY		24
 #define MINUTES_PER_HOUR	60
@@ -26,10 +27,20 @@
 #define PORTIONS_PER_DAY	6
 
 #define SEC_TO_MILLI		1000
-#define MENU_TIMEOUT		(20 * SEC_TO_MILLI)
+#define MENU_TIMEOUT		(10 * SEC_TO_MILLI)
+#define TIME_CHECKING		(1 * SEC_TO_MILLI)
+
+#define CE_PIN   	8
+#define IO_PIN 		9
+#define SCLK_PIN	10
+
+/* Create a DS1302 object */
+DS1302 rtc(CE_PIN, IO_PIN, SCLK_PIN);
+
 
 enum keys {
 	KEY_NONE,
+	
 	KEY_UP,
 	KEY_DOWN,
 	KEY_ENTER,
@@ -72,17 +83,45 @@ byte down[8] = {
   0b00000
 };
 
-void force_feed_action(int key);
+#define xstr(s) str(s)
+#define str(s) #s
+
 void force_feed_display();
+void force_feed_action(int button);
+
+void enable_display();
+void enable_action(int button);
+
+void slot_quant_display();
+void slot_quant_action(int button);
+
+void time_display();
+void time_action(int button);
 
 struct menu;
 
 struct feeding_slot {
-	char hr;
-	char min;
+	int hour;
+	int min;
+	int enable;
+	int parts;
 };
 
-struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] = {0};
+struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] =
+{
+	{
+		7, 0, 1, 6,
+	},
+	{
+		12, 0, 1, 6,
+	},
+	{
+		18, 0, 1, 6,
+	},
+	{
+		23, 0, 1, 6,
+	},
+};
 
 struct menu_entry {
 	const char *name;
@@ -96,43 +135,85 @@ struct menu {
 	struct menu_entry *entries;
 	int entry_count;
 	struct menu *prev_menu;
+	void *data;
 };
 
 extern struct menu main_menu;
+extern struct menu configure_menu;
+
+#define slot_menu(__slot)		\
+struct menu_entry slot_entries_ ##__slot[3] = 	\
+{	\
+	{	\
+		"Enable",	\
+		enable_action,	\
+		enable_display,	\
+		NULL,	\
+	},	\
+	{	\
+		"Time",	\
+		time_action,	\
+		time_display,	\
+		NULL,	\
+	},	\
+	{	\
+		"Quantity",	\
+		slot_quant_action,	\
+		slot_quant_display,	\
+		NULL,	\
+	},	\
+};	\
+	\
+struct menu slot_menu_ ## __slot = {	\
+	"Slot " str(__slot),	\
+	slot_entries_ ## __slot,	\
+	3,	\
+	&configure_menu,	\
+	(void *) __slot,		\
+}
+
+slot_menu(1);
+slot_menu(2);
+slot_menu(3);
+slot_menu(4);
 
 /**
  *  Configuration
  */
-struct menu_entry configure_entries[FEEDING_SLOT_COUNT] = {
+struct menu_entry configure_entries[FEEDING_SLOT_COUNT] =
+{
 	{
 		"Slot 1",
 		NULL,
 		NULL,
-		NULL,
-	},	{
+		&slot_menu_1,
+	},
+	{
 		"Slot 2",
 		NULL,
 		NULL,
-		NULL,
-	},	{
+		&slot_menu_2,
+	},
+	{
 		"Slot 3",
 		NULL,
 		NULL,
-		NULL,
+		&slot_menu_3,
 	},
 	{
-		"Add a slot",
+		"Slot 4",
 		NULL,
 		NULL,
-		NULL,
+		&slot_menu_4,
 	},
 };
 
 struct menu configure_menu = {
 	"Configuration",
 	configure_entries,
-	4,
+	FEEDING_SLOT_COUNT,
 	&main_menu,
+	NULL,
 };
 
 /**
@@ -158,15 +239,14 @@ struct menu main_menu = {
 	main_entries,
 	2,
 	NULL,
+	NULL,
 };
 
 Servo feeder;
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
-int part_per_portion = 4;
-
-struct menu *cur_menu = &main_menu;
-int cur_sel = 0;
+static struct menu *cur_menu = &main_menu;
+static int cur_sel = 0;
 
 void setup()
 {
@@ -178,11 +258,13 @@ void setup()
 	
 	lcd.begin(16, 2);
 	lcd.setCursor(0, 0);
-	lcd.print("Catfeeder V0.1");
-      
+        lcd.print("Running");
+
         lcd.createChar(CHAR_UP, up);
         lcd.createChar(CHAR_UPDOWN, updown);
         lcd.createChar(CHAR_DOWN, down);
+
+	rtc.halt(false);
 }
 
 void lcd_reset()
@@ -210,6 +292,9 @@ void wait_trigger()
 
 void feed(int part)
 {
+	if (part == 0)	
+		return;
+
 	feeder.write(SERVO_MOVE_VALUE);
 	delay(300); 
 	lcd_reset();
@@ -218,7 +303,7 @@ void feed(int part)
 	/* Wait for the parts to be delivered */
 	while(part-- > 0) {
 		lcd.setCursor(0, 1);
-		lcd.print(part);
+		lcd.print(part + 1);
 		wait_trigger();
 	}
 
@@ -248,39 +333,140 @@ int button_pressed()
         
 	return key;
 }
-static int force_feed_parts = 1;
 
-void force_feed_action(int button)
+void quantity_action(int button, int *parts)
 {
 	switch (button) {
 	case KEY_ENTER:
-		feed(force_feed_parts);
-		force_feed_parts = 1;
+		*parts = 0;
 		break;
 	case KEY_CANCEL:
-		force_feed_parts = 1;
+		*parts = 0;
 		break;
 	case KEY_UP:
-		force_feed_parts++;
+		(*parts)++;
 		break;
 	case KEY_DOWN:
-		force_feed_parts--;
-		if (force_feed_parts < 1)
-			force_feed_parts = 1;
+		(*parts)--;
+		if (*parts < 0)
+			*parts = 0;
 		break;
 	}
 }
 
-void force_feed_display()
+void quantity_display(int *parts)
 {
-	if (force_feed_parts == 1)
+	if (*parts == 0)
 		lcd.write(byte(CHAR_UP));
 	else
 		lcd.write(CHAR_UPDOWN);
 		
 	lcd.print("Parts: ");
-	lcd.print(force_feed_parts);
+	lcd.print(*parts);
 	lcd.print(" ");
+}
+
+static int force_feed_parts = 0;
+
+void force_feed_display()
+{
+	quantity_display(&force_feed_parts);
+}
+
+void force_feed_action(int button)
+{
+	if (button == KEY_ENTER)
+		feed(force_feed_parts);
+
+	quantity_action(button, &force_feed_parts);
+}
+
+void slot_quant_display()
+{
+	int slot_idx = (int) cur_menu->data;
+
+	quantity_display(&feeding_slots[slot_idx].parts);
+}
+
+void slot_quant_action(int button)
+{
+	int slot_idx = (int) cur_menu->data;
+
+	quantity_action(button, &feeding_slots[slot_idx].parts);
+}
+
+void enable_display()
+{
+	int slot_idx = (int) cur_menu->data;
+
+	if (feeding_slots[slot_idx].enable) {
+		lcd.write(CHAR_DOWN);
+		lcd.print(" On ");
+	} else {
+		lcd.write(byte(CHAR_UP));
+		lcd.print(" Off ");
+	}
+}
+
+void enable_action(int button)
+{
+	int slot_idx = (int) cur_menu->data;
+
+	switch (button) {
+	case KEY_UP:
+		feeding_slots[slot_idx].enable = 1;
+		break;
+	case KEY_DOWN:
+		feeding_slots[slot_idx].enable = 0;
+		break;
+	}
+}
+
+static int cur_field = 0;
+
+void time_display()
+{
+	int slot_idx = (int) cur_menu->data;
+	lcd.print(" ");
+
+	if (feeding_slots[slot_idx].hour < 10)
+		lcd.print("0");
+	lcd.print(feeding_slots[slot_idx].hour);
+	lcd.print(":");
+
+	if (feeding_slots[slot_idx].min < 10)
+		lcd.print("0");
+	else
+		lcd.print(feeding_slots[slot_idx].min);
+
+}
+
+void time_action(int button)
+{
+	int slot_idx = (int) cur_menu->data;
+
+	switch (button) {
+	case KEY_UP:
+		feeding_slots[slot_idx].min += 30;
+		if (feeding_slots[slot_idx].min == 60) {
+			feeding_slots[slot_idx].min = 0;
+			feeding_slots[slot_idx].hour++;
+			if (feeding_slots[slot_idx].hour == 24) {
+				feeding_slots[slot_idx].hour = 0;
+			}
+		}
+		break;
+	case KEY_DOWN:	
+		feeding_slots[slot_idx].min -= 30;
+		if (feeding_slots[slot_idx].min < 0) {
+			feeding_slots[slot_idx].min = 30;
+			feeding_slots[slot_idx].hour--;
+			if (feeding_slots[slot_idx].hour < 0) {
+				feeding_slots[slot_idx].hour = 23;
+			}
+		}
+		break;
+	}
 }
 
 void display_lcd_menu()
@@ -317,6 +503,8 @@ int menu_handle_action()
         lcd.print(">");
 
   	do {
+		lcd.setCursor(0, 1);
+		lcd.print("                ");
 		lcd.setCursor(0, 1);
 		cur_menu->entries[cur_sel].display();
                 delay(100);
@@ -382,21 +570,41 @@ void handle_menu()
 out:
         cur_sel = 0;
         lcd_reset();
-        lcd.print("Catfeeder V0.1");
+        lcd.print("Running");
         delay(200);
 
         return;
 }
 
-void loop()
-{
+void print_time(Time t)
+{	
+	if (t.hr < 10)
+		lcd.print("0");
+	lcd.print(t.hr);
+	lcd.print(":");
+	if (t.min < 10)
+		lcd.print("0");
+	lcd.print(t.min);
+	lcd.print(":");
+	if (t.sec < 10)
+		lcd.print("0");
+	lcd.print(t.sec);
+}
 
-	//if (is_feed_time())
-        //delay(5000);	
-	//feed(part_per_portion);
+static int last_millis = 0;
+
+void loop()
+{	
+	if ((millis() - last_millis) > TIME_CHECKING) {
+		last_millis = millis();
+	
+		Time t = rtc.time();
+		lcd.setCursor(0, 1);
+		print_time(t);
+	}
 
 	if (button_pressed())
 		handle_menu();
 
-	//delay(500000);
+	delay(200);
 }
