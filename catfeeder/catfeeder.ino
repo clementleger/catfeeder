@@ -1,6 +1,7 @@
 #include <Servo.h>
 #include <LiquidCrystal.h>
 #include <DS1302.h>
+#include <EEPROM.h>
 
 #define PIN_SENSOR  	A0
 #define PIN_KEYS	A1
@@ -18,7 +19,7 @@
 #define SERVO_FIX_VALUE		109
 #define SERVO_MOVE_VALUE	50
 
-#define FEEDING_SLOT_COUNT	4
+#define FEEDING_SLOT_COUNT	3
 
 #define HOURS_PER_DAY		24
 #define MINUTES_PER_HOUR	60
@@ -28,15 +29,15 @@
 
 #define SEC_TO_MILLI		1000
 #define MENU_TIMEOUT		(10 * SEC_TO_MILLI)
-#define TIME_CHECKING		(1 * SEC_TO_MILLI)
+#define TIME_CHECKING		(30 * SEC_TO_MILLI)
 
 #define CE_PIN   	8
 #define IO_PIN 		9
 #define SCLK_PIN	10
 
-/* Create a DS1302 object */
-DS1302 rtc(CE_PIN, IO_PIN, SCLK_PIN);
-
+#define SLOT_MAGIC	0x42
+#define TICK_MAGIC	0x43
+#define TICK_ADDR	0x0
 
 enum keys {
 	KEY_NONE,
@@ -89,6 +90,9 @@ byte down[8] = {
 void force_feed_display();
 void force_feed_action(int button);
 
+void stat_display();
+void stat_action(int button);
+
 void enable_display();
 void enable_action(int button);
 
@@ -98,28 +102,27 @@ void slot_quant_action(int button);
 void time_display();
 void time_action(int button);
 
+void disp_running(Time t);
 struct menu;
 
 struct feeding_slot {
-	int hour;
-	int min;
-	int enable;
-	int parts;
+	byte hour;
+	byte min;
+	byte enable;
+	byte parts;
+	byte has_been_fed;
 };
 
 struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] =
 {
 	{
-		7, 0, 1, 6,
+		7, 30, 1, 6, 0,
 	},
 	{
-		12, 0, 1, 6,
+		13, 0, 1, 6, 0,
 	},
 	{
-		18, 0, 1, 6,
-	},
-	{
-		23, 0, 1, 6,
+		19, 0, 1, 6, 0,
 	},
 };
 
@@ -169,13 +172,12 @@ struct menu slot_menu_ ## __slot = {	\
 	slot_entries_ ## __slot,	\
 	3,	\
 	&configure_menu,	\
-	(void *) __slot,		\
+	(void *) (__slot - 1),		\
 }
 
 slot_menu(1);
 slot_menu(2);
 slot_menu(3);
-slot_menu(4);
 
 /**
  *  Configuration
@@ -199,12 +201,6 @@ struct menu_entry configure_entries[FEEDING_SLOT_COUNT] =
 		NULL,
 		NULL,
 		&slot_menu_3,
-	},
-	{
-		"Slot 4",
-		NULL,
-		NULL,
-		&slot_menu_4,
 	},
 };
 
@@ -232,21 +228,60 @@ struct menu_entry main_entries[] = {
 		NULL,
 		&configure_menu,
 	},
+	{
+		"Statistics",
+		stat_action,
+		stat_display,
+		NULL,
+	},
 };
 
 struct menu main_menu = {
 	(char *) "Main",
 	main_entries,
-	2,
+	3,
 	NULL,
 	NULL,
 };
 
 Servo feeder;
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+DS1302 rtc(CE_PIN, IO_PIN, SCLK_PIN);
 
 static struct menu *cur_menu = &main_menu;
-static int cur_sel = 0;
+static int menu_cur_sel = 0;
+static unsigned int total_feeding_tick = 4;
+
+/**
+ *  Ticks related
+ */
+void write_feeding_ticks()
+{
+	EEPROM.write(TICK_ADDR, TICK_MAGIC);
+	EEPROM.write(TICK_ADDR + 1, total_feeding_tick >> 8);
+	EEPROM.write(TICK_ADDR + 2, total_feeding_tick & 0xFF);
+}
+void read_feeding_ticks()
+{
+	byte magic = EEPROM.read(TICK_ADDR);
+	if (magic != 0x43)
+		return;
+
+	total_feeding_tick = EEPROM.read(TICK_ADDR + 1);
+	total_feeding_tick <<= 8;
+	total_feeding_tick |= EEPROM.read(TICK_ADDR + 2);
+}
+
+void print_time(Time t)
+{	
+	if (t.hr < 10)
+		lcd.print("0");
+	lcd.print(t.hr);
+	lcd.print(":");
+	if (t.min < 10)
+		lcd.print("0");
+	lcd.print(t.min);
+}
 
 void setup()
 {
@@ -257,14 +292,16 @@ void setup()
 	feeder.write(SERVO_FIX_VALUE);
 	
 	lcd.begin(16, 2);
-	lcd.setCursor(0, 0);
-        lcd.print("Running");
 
         lcd.createChar(CHAR_UP, up);
         lcd.createChar(CHAR_UPDOWN, updown);
         lcd.createChar(CHAR_DOWN, down);
 
 	rtc.halt(false);
+
+	read_feeding_ticks();
+	
+	disp_running(rtc.time());
 }
 
 void lcd_reset()
@@ -292,13 +329,16 @@ void wait_trigger()
 
 void feed(int part)
 {
+	int orig_part = part;
+
 	if (part == 0)	
 		return;
 
+	lcd_reset();
+	lcd.print("<Feeding>");
+
 	feeder.write(SERVO_MOVE_VALUE);
 	delay(300); 
-	lcd_reset();
-	lcd.print("Feeding...");
 
 	/* Wait for the parts to be delivered */
 	while(part-- > 0) {
@@ -307,13 +347,12 @@ void feed(int part)
 		wait_trigger();
 	}
 
+	total_feeding_tick += orig_part;
+
+	write_feeding_ticks();
+
 	feeder.write(SERVO_FIX_VALUE);
 	lcd_reset();
-}
-
-int is_feed_time()
-{
-	return 0;
 }
 
 int button_pressed()
@@ -334,27 +373,32 @@ int button_pressed()
 	return key;
 }
 
-void quantity_action(int button, int *parts)
+/**
+ *  Actions and display
+ */
+ 
+void quantity_action(int button, byte *parts)
 {
+	byte new_parts = *parts;
 	switch (button) {
 	case KEY_ENTER:
-		*parts = 0;
+		new_parts = 0;
 		break;
 	case KEY_CANCEL:
-		*parts = 0;
+		new_parts = 0;
 		break;
 	case KEY_UP:
-		(*parts)++;
+		new_parts++;
 		break;
 	case KEY_DOWN:
-		(*parts)--;
-		if (*parts < 0)
-			*parts = 0;
+		if (new_parts > 0)
+			new_parts--;
 		break;
 	}
+	*parts = new_parts;
 }
 
-void quantity_display(int *parts)
+void quantity_display(byte *parts)
 {
 	if (*parts == 0)
 		lcd.write(byte(CHAR_UP));
@@ -366,7 +410,7 @@ void quantity_display(int *parts)
 	lcd.print(" ");
 }
 
-static int force_feed_parts = 0;
+static byte force_feed_parts = 0;
 
 void force_feed_display()
 {
@@ -375,8 +419,9 @@ void force_feed_display()
 
 void force_feed_action(int button)
 {
-	if (button == KEY_ENTER)
+	if (button == KEY_ENTER) {
 		feed(force_feed_parts);
+	}
 
 	quantity_action(button, &force_feed_parts);
 }
@@ -393,6 +438,17 @@ void slot_quant_action(int button)
 	int slot_idx = (int) cur_menu->data;
 
 	quantity_action(button, &feeding_slots[slot_idx].parts);
+}
+
+void stat_display()
+{
+	lcd.print("Feed ticks: ");
+	lcd.print(total_feeding_tick);
+}
+
+void stat_action(int button)
+{
+
 }
 
 void enable_display()
@@ -422,7 +478,9 @@ void enable_action(int button)
 	}
 }
 
-static int cur_field = 0;
+/**
+ *  Menu
+ */
 
 void time_display()
 {
@@ -481,14 +539,14 @@ void display_lcd_menu()
 	lcd.setCursor(0, 1);
         if (cur_menu->entry_count == 1)
                 lcd.print(" ");
-        else if (cur_sel == 0)
+        else if (menu_cur_sel == 0)
                 lcd.write(CHAR_DOWN);
-        else if (cur_sel == cur_menu->entry_count - 1)
+        else if (menu_cur_sel == cur_menu->entry_count - 1)
                 lcd.write(byte(CHAR_UP));
         else
                 lcd.write(CHAR_UPDOWN);
 
-	lcd.print(cur_menu->entries[cur_sel].name);
+	lcd.print(cur_menu->entries[menu_cur_sel].name);
 }
 
 int menu_handle_action()
@@ -499,14 +557,14 @@ int menu_handle_action()
         lcd_reset();
   	lcd.setCursor(0, 0);
         lcd.print("<");
-	lcd.print(cur_menu->entries[cur_sel].name);
+	lcd.print(cur_menu->entries[menu_cur_sel].name);
         lcd.print(">");
 
   	do {
 		lcd.setCursor(0, 1);
 		lcd.print("                ");
 		lcd.setCursor(0, 1);
-		cur_menu->entries[cur_sel].display();
+		cur_menu->entries[menu_cur_sel].display();
                 delay(100);
 		last_press_time = millis();
 		do {
@@ -514,8 +572,9 @@ int menu_handle_action()
 			if ((millis() - last_press_time) > MENU_TIMEOUT)
 				return 1;
 		} while(button == KEY_NONE);
+		if (cur_menu->entries[menu_cur_sel].do_action)
+			cur_menu->entries[menu_cur_sel].do_action(button);
 
-		cur_menu->entries[cur_sel].do_action(button);
 	} while (button != KEY_ENTER && button != KEY_CANCEL);
 	
 	return 0;
@@ -538,73 +597,107 @@ void handle_menu()
 
 		switch (button) {
 			case KEY_ENTER:
-				if (cur_menu->entries[cur_sel].do_action) {
+				if (cur_menu->entries[menu_cur_sel].do_action) {
 					if (menu_handle_action()) {
 						goto out;
 					}
-				} else if (cur_menu->entries[cur_sel].sub_menu) {
-					cur_menu = cur_menu->entries[cur_sel].sub_menu;
-					cur_sel = 0;
+				} else if (cur_menu->entries[menu_cur_sel].sub_menu) {
+					cur_menu = cur_menu->entries[menu_cur_sel].sub_menu;
+					menu_cur_sel = 0;
 				}
 				break;
                         case KEY_CANCEL:
 				if (cur_menu->prev_menu) {
-					cur_sel = 0;
+					menu_cur_sel = 0;
 					cur_menu= cur_menu->prev_menu;
 				} else {
 					goto out;
 				}
 				break;
 			case KEY_UP:
-				cur_sel--;
-				if (cur_sel < 0)
-					cur_sel = 0;
+				menu_cur_sel--;
+				if (menu_cur_sel < 0)
+					menu_cur_sel = 0;
 				break;
 			case KEY_DOWN:
-				cur_sel++;
-                                if (cur_sel == cur_menu->entry_count)
-                                        cur_sel = cur_menu->entry_count - 1;
+				menu_cur_sel++;
+                                if (menu_cur_sel == cur_menu->entry_count)
+                                        menu_cur_sel = cur_menu->entry_count - 1;
 				break;
 		}
 	} while(1);
 out:
-        cur_sel = 0;
-        lcd_reset();
-        lcd.print("Running");
+        menu_cur_sel = 0;
         delay(200);
 
         return;
 }
 
-void print_time(Time t)
-{	
-	if (t.hr < 10)
-		lcd.print("0");
-	lcd.print(t.hr);
-	lcd.print(":");
-	if (t.min < 10)
-		lcd.print("0");
-	lcd.print(t.min);
-	lcd.print(":");
-	if (t.sec < 10)
-		lcd.print("0");
-	lcd.print(t.sec);
+static int last_millis = 0;
+
+int check_feeding_slot(Time t, int slot)
+{
+	if (!feeding_slots[slot].enable || feeding_slots[slot].has_been_fed)
+		return 0;
+	
+	if (feeding_slots[slot].hour != t.hr ||
+		feeding_slots[slot].min != t.min)
+		return 0;
+
+	feed(feeding_slots[slot].parts);
+
+	feeding_slots[slot].has_been_fed = 1;
+
+	return 1;
 }
 
-static int last_millis = 0;
+void check_feeding(Time t)
+{
+	int i;
+
+	for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
+		if (check_feeding_slot(t, i))
+			break;
+	}
+
+}
+
+void disp_running(Time t)
+{
+        lcd_reset();
+	lcd.setCursor(3, 0);
+        lcd.print("<Running>");
+	lcd.setCursor(5, 1);
+	print_time(t);
+}
+
+static int last_day = -1;
 
 void loop()
 {	
+	Time t;
+	int i;
+
 	if ((millis() - last_millis) > TIME_CHECKING) {
 		last_millis = millis();
-	
-		Time t = rtc.time();
-		lcd.setCursor(0, 1);
-		print_time(t);
+
+		t = rtc.time();
+		/* Reset the slots */
+		if (last_day != t.day) {
+			last_day = t.day;
+			for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
+				feeding_slots[i].has_been_fed = 0;
+			}
+		}
+		disp_running(t);
+		check_feeding(t);
 	}
 
-	if (button_pressed())
+	if (button_pressed()) {
 		handle_menu();
+		t = rtc.time();
+		disp_running(t);
+	}
 
 	delay(200);
 }
