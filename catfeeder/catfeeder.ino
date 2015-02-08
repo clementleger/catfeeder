@@ -157,12 +157,6 @@ extern struct menu configure_menu;
 struct menu_entry slot_entries_ ##__slot[3] = 	\
 {	\
 	{	\
-		"Enable",	\
-		enable_action,	\
-		enable_display,	\
-		NULL,	\
-	},	\
-	{	\
 		"Time",	\
 		time_action,	\
 		time_display,	\
@@ -172,6 +166,12 @@ struct menu_entry slot_entries_ ##__slot[3] = 	\
 		"Quantity",	\
 		slot_quant_action,	\
 		slot_quant_display,	\
+		NULL,	\
+	},	\
+	{	\
+		"Enable",	\
+		enable_action,	\
+		enable_display,	\
 		NULL,	\
 	},	\
 };	\
@@ -226,6 +226,12 @@ struct menu configure_menu = {
  */
 struct menu_entry main_entries[] = {
 	{
+		"Statistics",
+		stat_action,
+		stat_display,
+		NULL,
+	},
+	{
 		"Force feed",
 		force_feed_action,
 		force_feed_display,
@@ -236,12 +242,6 @@ struct menu_entry main_entries[] = {
 		NULL,
 		NULL,
 		&configure_menu,
-	},
-	{
-		"Statistics",
-		stat_action,
-		stat_display,
-		NULL,
 	},
 	{
 		"Calibrate",
