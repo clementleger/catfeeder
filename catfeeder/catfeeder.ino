@@ -93,23 +93,29 @@ byte down[8] = {
 #define xstr(s) str(s)
 #define str(s) #s
 
-void force_feed_display();
-void force_feed_action(int button);
+void force_feed_display(void *data) ;
+void force_feed_action(void *data, int button);
 
-void stat_display();
-void stat_action(int button);
+void stat_display(void *data) ;
+void stat_action(void *data, int button);
 
-void enable_display();
-void enable_action(int button);
+void enable_display(void *data) ;
+void enable_action(void *data, int button);
 
-void slot_quant_display();
-void slot_quant_action(int button);
+void skip_display(void *data) ;
+void skip_action(void *data, int button);
 
-void time_display();
-void time_action(int button);
+void slot_quant_display(void *data) ;
+void slot_quant_action(void *data, int button);
 
-void calibrate_display();
-void calibrate_action(int button);
+void time_display(void *data) ;
+void time_action(void *data, int button);
+
+void calibrate_display(void *data) ;
+void calibrate_action(void *data, int button);
+
+void feed_now_action(void *data, int button);
+void feed_now_display(void *data) ;
 
 void disp_running(Time t);
 struct menu;
@@ -125,20 +131,20 @@ struct feeding_slot {
 struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] =
 {
 	{
-		7, 30, 1, 7, 0,
+		7, 30, 1, 10, 0,
 	},
 	{
 		13, 0, 1, 5, 0,
 	},
 	{
-		19, 0, 1, 7, 0,
+		19, 0, 1, 10, 0,
 	},
 };
 
 struct menu_entry {
 	const char *name;
-	void (* do_action)(int key);
-	void (* display)();
+	void (* do_action)(void *data,int key);
+	void (* display)(void *data);
 	struct menu *sub_menu;
 };
 
@@ -146,7 +152,6 @@ struct menu {
 	const char *name;
 	struct menu_entry *entries;
 	byte entry_count;
-	struct menu *prev_menu;
 	void *data;
 };
 
@@ -154,7 +159,7 @@ extern struct menu main_menu;
 extern struct menu configure_menu;
 
 #define slot_menu(__slot)		\
-struct menu_entry slot_entries_ ##__slot[3] = 	\
+struct menu_entry slot_entries_ ##__slot[] = 	\
 {	\
 	{	\
 		"Time",	\
@@ -169,6 +174,18 @@ struct menu_entry slot_entries_ ##__slot[3] = 	\
 		NULL,	\
 	},	\
 	{	\
+		"Skip",	\
+		skip_action,	\
+		skip_display,	\
+		NULL,	\
+	},	\
+	{	\
+		"Feed now",	\
+		feed_now_action,	\
+		feed_now_display,	\
+		NULL,	\
+	},	\
+	{	\
 		"Enable",	\
 		enable_action,	\
 		enable_display,	\
@@ -179,8 +196,7 @@ struct menu_entry slot_entries_ ##__slot[3] = 	\
 struct menu slot_menu_ ## __slot = {	\
 	"Slot " str(__slot),	\
 	slot_entries_ ## __slot,	\
-	3,	\
-	&configure_menu,	\
+	5,	\
 	(void *) (__slot - 1),		\
 }
 
@@ -191,7 +207,7 @@ slot_menu(3);
 /**
  *  Configuration
  */
-struct menu_entry configure_entries[FEEDING_SLOT_COUNT] =
+struct menu_entry configure_entries[] =
 {
 	{
 		"Slot 1",
@@ -217,7 +233,6 @@ struct menu configure_menu = {
 	"Configuration",
 	configure_entries,
 	FEEDING_SLOT_COUNT,
-	&main_menu,
 	NULL,
 };
 
@@ -232,16 +247,16 @@ struct menu_entry main_entries[] = {
 		NULL,
 	},
 	{
-		"Force feed",
-		force_feed_action,
-		force_feed_display,
-		NULL,
-	},
-	{
 		"Slots",
 		NULL,
 		NULL,
 		&configure_menu,
+	},
+	{
+		"Force feed",
+		force_feed_action,
+		force_feed_display,
+		NULL,
 	},
 	{
 		"Calibrate",
@@ -256,15 +271,12 @@ struct menu main_menu = {
 	main_entries,
 	4,
 	NULL,
-	NULL,
 };
 
 Servo feeder;
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 DS1302 rtc(CE_PIN, IO_PIN, SCLK_PIN);
 
-static struct menu *cur_menu = &main_menu;
-static byte menu_cur_sel = 0;
 static uint32_t total_feeding_grams = 2;
 static byte grams_per_portion = GRAMS_PER_PORTION;
 
@@ -501,7 +513,7 @@ void quantity_display(byte *qty)
 	lcd.print(" grams");
 }
 
-void calibrate_display()
+void calibrate_display(void *data) 
 {
 	if (grams_per_portion == 0)
 		lcd.write(CHAR_UP);
@@ -513,7 +525,7 @@ void calibrate_display()
 	lcd.print(" grams");
 }
 
-void calibrate_action(int button)
+void calibrate_action(void *data, int button)
 {
 	quantity_action(button, &grams_per_portion);
 	
@@ -523,12 +535,12 @@ void calibrate_action(int button)
 
 static byte force_feed_parts = 0;
 
-void force_feed_display()
+void force_feed_display(void *data) 
 {
 	quantity_display(&force_feed_parts);
 }
 
-void force_feed_action(int button)
+void force_feed_action(void *data, int button)
 {
 	if (button == KEY_ENTER) {
 		feed(force_feed_parts);
@@ -540,16 +552,31 @@ void force_feed_action(int button)
 	}
 }
 
-void slot_quant_display()
+void feed_now_action(void *data, int button)
 {
-	int slot_idx = (int) cur_menu->data;
+	int slot_idx = (int) data;
+	
+	if (button == KEY_ENTER) {
+		feed(feeding_slots[slot_idx].qty);
+		feeding_slots[slot_idx].has_been_fed = 1;
+	}
+}
+
+void feed_now_display(void *data) 
+{
+	lcd.print("Press enter");
+}
+
+void slot_quant_display(void *data) 
+{
+	int slot_idx = (int) data;
 
 	quantity_display(&feeding_slots[slot_idx].qty);
 }
 
-void slot_quant_action(int button)
+void slot_quant_action(void *data, int button)
 {
-	int slot_idx = (int) cur_menu->data;
+	int slot_idx = (int) data;
 
 	quantity_action(button, &feeding_slots[slot_idx].qty);
 
@@ -565,7 +592,7 @@ enum stat {
 
 static byte cur_stat = 0;
 
-void stat_display()
+void stat_display(void *data) 
 {
 	unsigned int tmp = 0;
 	switch (cur_stat) {
@@ -588,7 +615,7 @@ void stat_display()
 	}
 }
 
-void stat_action(int button)
+void stat_action(void *data, int button)
 {
 	if (button == KEY_UP)
 		cur_stat = STAT_TOTAL_QTY;
@@ -596,11 +623,10 @@ void stat_action(int button)
 		cur_stat = STAT_GRAMS_PER_DAY;
 }
 
-void enable_display()
+void bool_display(byte value)
 {
-	int slot_idx = (int) cur_menu->data;
 
-	if (feeding_slots[slot_idx].enable) {
+	if (value) {
 		lcd.write(CHAR_DOWN);
 		lcd.print(" On ");
 	} else {
@@ -609,31 +635,53 @@ void enable_display()
 	}
 }
 
-void enable_action(int button)
+void bool_action(int button, byte *value)
 {
-	int slot_idx = (int) cur_menu->data;
-
 	switch (button) {
 	case KEY_UP:
-		feeding_slots[slot_idx].enable = 1;
+		*value = 1;
 		break;
 	case KEY_DOWN:
-		feeding_slots[slot_idx].enable = 0;
-		break;
-	case KEY_ENTER:
-	case KEY_CANCEL:
-		eeprom_write_slot(slot_idx);
+		*value = 0;
 		break;
 	}
+}
+
+void enable_display(void *data) 
+{
+	int slot_idx = (int) data;
+	bool_display(feeding_slots[slot_idx].enable);
+}
+
+void enable_action(void *data, int button)
+{
+	int slot_idx = (int) data;
+
+	if (button == KEY_ENTER || button == KEY_CANCEL)
+		eeprom_write_slot(slot_idx);
+	else 
+		bool_action(button, &feeding_slots[slot_idx].enable);
+}
+
+void skip_display(void *data) 
+{
+	int slot_idx = (int) data;
+	bool_display(feeding_slots[slot_idx].has_been_fed);
+}
+
+void skip_action(void *data, int button)
+{
+	int slot_idx = (int) data;
+	bool_action(button, &feeding_slots[slot_idx].has_been_fed);
 }
 
 /**
  *  Menu
  */
 
-void time_display()
+void time_display(void *data) 
 {
-	int slot_idx = (int) cur_menu->data;
+	int slot_idx = (int) data;
 	struct feeding_slot *slot = &feeding_slots[slot_idx];
 
 	lcd.print(" ");
@@ -649,9 +697,9 @@ void time_display()
 
 }
 
-void time_action(int button)
+void time_action(void *data, int button)
 {
-	int slot_idx = (int) cur_menu->data;
+	int slot_idx = (int) data;
 	struct feeding_slot *slot = &feeding_slots[slot_idx];
 
 	switch (button) {
@@ -685,7 +733,7 @@ void time_action(int button)
 	}
 }
 
-void display_lcd_menu()
+void display_lcd_menu(struct menu *cur_menu, int menu_cur_sel)
 {
 
         lcd_reset();
@@ -707,7 +755,7 @@ void display_lcd_menu()
 	lcd.print(cur_menu->entries[menu_cur_sel].name);
 }
 
-int menu_handle_action()
+int menu_handle_action(struct menu *cur_menu, int menu_cur_sel)
 {
 	int button = KEY_NONE;
 	unsigned long last_press_time;
@@ -722,7 +770,7 @@ int menu_handle_action()
 		lcd.setCursor(0, 1);
 		lcd.print("                ");
 		lcd.setCursor(0, 1);
-		cur_menu->entries[menu_cur_sel].display();
+		cur_menu->entries[menu_cur_sel].display(cur_menu->data) ;
                 delay(50);
 		last_press_time = millis();
 		do {
@@ -731,20 +779,21 @@ int menu_handle_action()
 				return 1;
 		} while(button == KEY_NONE);
 		if (cur_menu->entries[menu_cur_sel].do_action)
-			cur_menu->entries[menu_cur_sel].do_action(button);
+			cur_menu->entries[menu_cur_sel].do_action(cur_menu->data, button);
 
 	} while (button != KEY_ENTER && button != KEY_CANCEL);
 	
 	return 0;
 }
 
-void handle_menu()
+void handle_menu(struct menu *cur_menu)
 {
 	int button;
+	int menu_cur_sel = 0;
 	unsigned long last_press_time;
 
 	do {
-                display_lcd_menu();
+                display_lcd_menu(cur_menu, menu_cur_sel);
                 delay(100);
 		last_press_time = millis();
 		do {
@@ -756,22 +805,15 @@ void handle_menu()
 		switch (button) {
 			case KEY_ENTER:
 				if (cur_menu->entries[menu_cur_sel].do_action) {
-					if (menu_handle_action()) {
+					if (menu_handle_action(cur_menu, menu_cur_sel)) {
 						goto out;
 					}
 				} else if (cur_menu->entries[menu_cur_sel].sub_menu) {
-					cur_menu = cur_menu->entries[menu_cur_sel].sub_menu;
-					menu_cur_sel = 0;
+					handle_menu(cur_menu->entries[menu_cur_sel].sub_menu);
 				}
 				break;
                         case KEY_CANCEL:
-				if (cur_menu->prev_menu) {
-					menu_cur_sel = 0;
-					cur_menu= cur_menu->prev_menu;
-				} else {
-					goto out;
-				}
-				break;
+				return;
 			case KEY_UP:
 				if (menu_cur_sel > 0)
 					menu_cur_sel--;
@@ -784,9 +826,6 @@ void handle_menu()
 		}
 	} while(1);
 out:
-        menu_cur_sel = 0;
-        delay(200);
-
         return;
 }
 
@@ -832,6 +871,7 @@ void serial_handle()
 {
 	int i;
 	char c = Serial.read();
+	int gram_per_day = 0;
 
 	switch (c) {
 		case 's':
@@ -841,15 +881,22 @@ void serial_handle()
 				Serial.print("\n  Has been fed: ");
 				Serial.print(feeding_slots[i].has_been_fed);
 				Serial.print("\n  Quantity: ");
+				Serial.print(feeding_slots[i].qty);
+				Serial.print("\n  Quantity (grams): ");
 				Serial.print(feeding_slots[i].qty * grams_per_portion);
-				Serial.print(" grams\n  Enable: ");
+				Serial.print(" g\n  Enable: ");
 				Serial.print(feeding_slots[i].enable);
 				Serial.print("\n  Time: ");
 				Serial.print(feeding_slots[i].hour);
+				Serial.print(":");
 				Serial.println(feeding_slots[i].min);
+				gram_per_day += feeding_slots[i].qty * grams_per_portion;
 			}
+
 			Serial.print("\nTotal feeding grams: ");
 			Serial.println(total_feeding_grams);
+			Serial.print("\nGrams per day: ");
+			Serial.println(gram_per_day);
 		break;
 		case 'r':
 			eeprom_read_total_qty();
@@ -885,8 +932,8 @@ void loop()
 		check_feeding(t);
 	}
 
-	if (button_pressed() == KEY_ENTER) {
-		handle_menu();
+	if (button_pressed()) {
+		handle_menu(&main_menu);
 		t = rtc.time();
 		disp_running(t);
 	}
