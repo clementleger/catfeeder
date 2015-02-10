@@ -4,21 +4,51 @@
 #include <EEPROM.h>
 #include <avr/eeprom.h>
 
-#define PIN_SENSOR  	A0
-#define PIN_KEYS	A1
 
-#define VALUE_UP       	205
-#define VALUE_DOWN      120
-#define VALUE_ENTER     165
-#define VALUE_CANCEL     70
+#define CATFEEDER_VERSION	0x01
 
-#define VALUE_DELTA      10
+/**
+ * PINS 
+ */
+
+#define PIN_SENSOR  		A0
+#define PIN_KEYS		A1
+#define PIN_SERVO               13
+
+#define PIN_CLOCK_CE   		8
+#define PIN_CLOCK_IO 		9
+#define PIN_CLOCK_SCLK		10
+
+#define PIN_LCD_RS		12
+#define PIN_LCD_ENABLE		11
+#define PIN_LCD_D4		5
+#define PIN_LCD_D5		4
+#define PIN_LCD_D6		3
+#define PIN_LCD_D7		2
+
+/**
+ * Servo
+ */
+
+#define SERVO_FIX_VALUE		109
+#define SERVO_MOVE_VALUE	50
+
+/** 
+ * Button ADC values
+ */
+
+#define VALUE_UP		205
+#define VALUE_DOWN		120
+#define VALUE_ENTER		165
+#define VALUE_CANCEL		70
+
+#define VALUE_DELTA		10
 
 #define VALUE_CHECK(__value, __ref)  ((__value > (__ref - VALUE_DELTA)) && (__value < (__ref + VALUE_DELTA)))
 
-#define PIN_SERVO               13
-#define SERVO_FIX_VALUE		109
-#define SERVO_MOVE_VALUE	50
+/**
+ * Configuration
+ */
 
 #define FEEDING_SLOT_COUNT	3
 
@@ -26,33 +56,37 @@
 #define MINUTES_PER_HOUR	60
 #define MINUTES_PER_DAY		(HOURS_PER_DAY * MINUTES_PER_HOUR)
 
-#define GRAMS_PER_PORTION	4
+#define GRAMS_PER_PORTION	3.6
+#define GPP_INCREMENT		0.1
 
 #define SEC_TO_MILLI		1000
 #define MENU_TIMEOUT		(15 * SEC_TO_MILLI)
 #define TIME_CHECKING		(10 * SEC_TO_MILLI)
 
-#define CE_PIN   	8
-#define IO_PIN 		9
-#define SCLK_PIN	10
 
-#define EEPROM_TICK_MAGIC		0x43
-#define EEPROM_SLOT_MAGIC		0x44
-#define EEPROM_GPP_MAGIC		0x45
-#define EEPROM_TICK_ADDR	(0x0)
-#define EEPROM_SLOT_ADDR	(EEPROM_TICK_ADDR + 5)
-#define EEPROM_GPP_ADDR		(EEPROM_SLOT_ADDR + FEEDING_SLOT_COUNT * (1 + sizeof(struct feeding_slot)))
+/**
+ * EEPROM
+ */
+
+#define EEPROM_VERSION_ADDR	0x0
+#define EEPROM_TOTAL_GRAM_ADDR	0x1
+#define EEPROM_GPP_ADDR		(EEPROM_TOTAL_GRAM_ADDR + sizeof(total_feeding_grams))
+#define EEPROM_SLOT_CONF_ADDR	(EEPROM_GPP_ADDR + sizeof(grams_per_portion))
 
 #define TIME_INCREMENT	15
 
 enum keys {
-	KEY_NONE,
+	KEY_NONE = 0,
 	
 	KEY_UP,
 	KEY_DOWN,
 	KEY_ENTER,
 	KEY_CANCEL
 };
+
+/**
+ * LCD characters
+ */
 
 #define CHAR_UP	(byte(0))
 byte up[8] = {
@@ -93,6 +127,19 @@ byte down[8] = {
 #define xstr(s) str(s)
 #define str(s) #s
 
+/**
+ * Globals
+ */
+Servo feeder;
+LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_ENABLE, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7);
+DS1302 rtc(PIN_CLOCK_CE, PIN_CLOCK_IO, PIN_CLOCK_SCLK);
+
+static float total_feeding_grams = 0;
+static float grams_per_portion = GRAMS_PER_PORTION;
+
+/**
+ * Action and display prototypes
+ */
 void force_feed_display(void *data) ;
 void force_feed_action(void *data, int button);
 
@@ -131,16 +178,19 @@ struct feeding_slot {
 struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] =
 {
 	{
-		7, 30, 1, 10, 0,
+		7, 30, 1, 8, 0,
 	},
 	{
-		13, 0, 1, 5, 0,
+		13, 0, 1, 4, 0,
 	},
 	{
-		19, 0, 1, 10, 0,
+		19, 0, 1, 8, 0,
 	},
 };
 
+/**
+ * Menu stuff
+ */
 struct menu_entry {
 	const char *name;
 	void (* do_action)(void *data,int key);
@@ -273,61 +323,35 @@ struct menu main_menu = {
 	NULL,
 };
 
-Servo feeder;
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
-DS1302 rtc(CE_PIN, IO_PIN, SCLK_PIN);
-
-static uint32_t total_feeding_grams = 2;
-static byte grams_per_portion = GRAMS_PER_PORTION;
-
 /**
  *  EEPROM
  */
 void eeprom_write_total_qty()
 {	
-	byte magic = EEPROM.read(EEPROM_TICK_ADDR);
-	if (magic != EEPROM_TICK_MAGIC)
-		EEPROM.write(EEPROM_TICK_ADDR, EEPROM_TICK_MAGIC);
-
-	eeprom_write_dword((uint32_t *) (EEPROM_TICK_ADDR + 1), total_feeding_grams);
+	eeprom_write_block(&total_feeding_grams, (void *) (EEPROM_TOTAL_GRAM_ADDR), sizeof(float));
 }
 
 void eeprom_read_total_qty()
 {
-	byte magic = EEPROM.read(EEPROM_TICK_ADDR);
-	if (magic != EEPROM_TICK_MAGIC)
-		return;
-
-	total_feeding_grams = eeprom_read_dword((uint32_t *) (EEPROM_TICK_ADDR + 1));
+	eeprom_read_block(&total_feeding_grams, (void *) (EEPROM_TOTAL_GRAM_ADDR), sizeof (float));
 }
 
 void eeprom_write_gram_per_portion()
 {
-	byte magic = EEPROM.read(EEPROM_GPP_ADDR);
-	if (magic != EEPROM_GPP_MAGIC)
-		EEPROM.write(EEPROM_GPP_ADDR, EEPROM_GPP_MAGIC);
-
-	EEPROM.write(EEPROM_GPP_ADDR + 1, grams_per_portion);
+	eeprom_write_block(&grams_per_portion, (void *) (EEPROM_GPP_ADDR), sizeof(float));
 }
 
 void eeprom_read_gram_per_portion()
 {
-	byte magic = EEPROM.read(EEPROM_GPP_ADDR);
-	if (magic != EEPROM_GPP_MAGIC)
-		return;
-
-	grams_per_portion = EEPROM.read(EEPROM_GPP_ADDR + 1);
+	eeprom_read_block(&grams_per_portion, (void *) (EEPROM_GPP_ADDR), sizeof(float));
 }
 
 
 void eeprom_write_slot(int slot)
 {
 	byte tmp;
-	unsigned long addr = EEPROM_SLOT_ADDR + slot * sizeof(struct feeding_slot);
+	unsigned long addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
 
-	if (EEPROM.read(addr) != EEPROM_SLOT_MAGIC)
-		EEPROM.write(addr, EEPROM_SLOT_MAGIC);
-	addr++;
 	if (EEPROM.read(addr) != feeding_slots[slot].hour)
 		EEPROM.write(addr, feeding_slots[slot].hour);
 	addr++;
@@ -343,11 +367,7 @@ void eeprom_write_slot(int slot)
 
 void eeprom_read_slot(int slot)
 {
-	unsigned long addr = EEPROM_SLOT_ADDR + slot * sizeof(struct feeding_slot);
-
-	byte magic = EEPROM.read(addr++);
-	if (magic != EEPROM_SLOT_MAGIC)
-		return;
+	unsigned long addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
 
 	feeding_slots[slot].hour = EEPROM.read(addr++);
 	feeding_slots[slot].min = EEPROM.read(addr++);
@@ -367,9 +387,30 @@ void print_time(Time t)
 	lcd.print(t.min);
 }
 
-void setup()
+void eeprom_init()
 {
 	int i;
+
+	if (EEPROM.read(EEPROM_VERSION_ADDR) != CATFEEDER_VERSION) {
+		EEPROM.write(EEPROM_VERSION_ADDR, CATFEEDER_VERSION);
+
+		eeprom_write_total_qty();
+		eeprom_write_gram_per_portion();
+
+		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
+			eeprom_write_slot(i);
+	} else {
+		
+		eeprom_read_total_qty();
+		eeprom_read_gram_per_portion();
+
+		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
+			eeprom_read_slot(i);
+	}
+}
+
+void setup()
+{
 
 	Serial.begin(9600);
 	Serial.print("Cat feeder started\n");
@@ -386,12 +427,8 @@ void setup()
         lcd.createChar(CHAR_DOWN, down);
 
 	rtc.halt(false);
-
-	eeprom_read_total_qty();
-	eeprom_read_gram_per_portion();
-
-	for (i = 0; i < FEEDING_SLOT_COUNT; i++)
-		eeprom_read_slot(i);
+	
+	eeprom_init();
 
 	disp_running(rtc.time());
 }
@@ -442,7 +479,7 @@ void feed(int part)
 	lcd.print("<Feeding>");
 
 	lcd.setCursor(0, 1);
-	lcd.print(orig_part * grams_per_portion);
+	lcd.print(orig_part * grams_per_portion, 1);
 	lcd.print(" grams");
 	feeder.write(SERVO_MOVE_VALUE);
 	delay(1000); 
@@ -450,7 +487,7 @@ void feed(int part)
 	/* Wait for the qty to be delivered */
 	while(part-- > 0) {
 		lcd.setCursor(0, 1);
-		lcd.print((part + 1) * grams_per_portion);
+		lcd.print((part + 1) * grams_per_portion, 1);
 		lcd.print(" grams ");
 		if (wait_trigger() != 0)
 			goto out;
@@ -509,7 +546,7 @@ void quantity_display(byte *qty)
 		lcd.write(CHAR_UPDOWN);
 
 	lcd.print("Qty: ");
-	lcd.print(*qty * grams_per_portion);
+	lcd.print(*qty * grams_per_portion, 1);
 	lcd.print(" grams");
 }
 
@@ -521,14 +558,21 @@ void calibrate_display(void *data)
 		lcd.write(CHAR_UPDOWN);
 
 	lcd.print("Qty: ");
-	lcd.print(grams_per_portion);
+	lcd.print(grams_per_portion, 1);
 	lcd.print(" grams");
 }
 
 void calibrate_action(void *data, int button)
 {
-	quantity_action(button, &grams_per_portion);
-	
+	switch (button) {
+	case KEY_UP:
+		grams_per_portion += GPP_INCREMENT;
+		break;
+	case KEY_DOWN:
+		if (grams_per_portion > GPP_INCREMENT)
+			grams_per_portion -= GPP_INCREMENT;
+		break;
+	}
 	if (button == KEY_ENTER || button == KEY_CANCEL)
 		eeprom_write_gram_per_portion();
 }
@@ -594,12 +638,12 @@ static byte cur_stat = 0;
 
 void stat_display(void *data) 
 {
-	unsigned int tmp = 0;
+	float tmp = 0;
 	switch (cur_stat) {
 		case STAT_TOTAL_QTY:
 			lcd.write(CHAR_DOWN);
 			lcd.print("Total: ");
-			lcd.print(total_feeding_grams);
+			lcd.print(total_feeding_grams, 1);
 			lcd.print(" g");
 			break;
 		case STAT_GRAMS_PER_DAY:
@@ -607,7 +651,7 @@ void stat_display(void *data)
 			lcd.print("Per day: ");
 			for(int i = 0; i < FEEDING_SLOT_COUNT; i++)
 				tmp += (feeding_slots[i].qty * grams_per_portion);
-			lcd.print(tmp);
+			lcd.print(tmp, 1);
 			lcd.print(" g");
 			break;
 		default:
@@ -871,7 +915,7 @@ void serial_handle()
 {
 	int i;
 	char c = Serial.read();
-	int gram_per_day = 0;
+	float grams_per_day = 0;
 
 	switch (c) {
 		case 's':
@@ -883,20 +927,20 @@ void serial_handle()
 				Serial.print("\n  Quantity: ");
 				Serial.print(feeding_slots[i].qty);
 				Serial.print("\n  Quantity (grams): ");
-				Serial.print(feeding_slots[i].qty * grams_per_portion);
+				Serial.print(feeding_slots[i].qty * grams_per_portion, 1);
 				Serial.print(" g\n  Enable: ");
 				Serial.print(feeding_slots[i].enable);
 				Serial.print("\n  Time: ");
 				Serial.print(feeding_slots[i].hour);
 				Serial.print(":");
 				Serial.println(feeding_slots[i].min);
-				gram_per_day += feeding_slots[i].qty * grams_per_portion;
+				grams_per_day += feeding_slots[i].qty * grams_per_portion;
 			}
 
 			Serial.print("\nTotal feeding grams: ");
-			Serial.println(total_feeding_grams);
+			Serial.println(total_feeding_grams, 1);
 			Serial.print("\nGrams per day: ");
-			Serial.println(gram_per_day);
+			Serial.println(grams_per_day, 1);
 		break;
 		case 'r':
 			eeprom_read_total_qty();
