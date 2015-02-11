@@ -13,14 +13,14 @@
 
 #define PIN_SENSOR  		A0
 #define PIN_KEYS		A1
-#define PIN_SERVO               13
+#define PIN_SERVO               A2
 
-#define PIN_CLOCK_CE   		8
-#define PIN_CLOCK_IO 		9
-#define PIN_CLOCK_SCLK		10
+#define PIN_CLOCK_CE   		A5
+#define PIN_CLOCK_IO 		A4
+#define PIN_CLOCK_SCLK		A3
 
-#define PIN_LCD_RS		12
-#define PIN_LCD_ENABLE		11
+#define PIN_LCD_RS		7
+#define PIN_LCD_ENABLE		6
 #define PIN_LCD_D4		5
 #define PIN_LCD_D5		4
 #define PIN_LCD_D6		3
