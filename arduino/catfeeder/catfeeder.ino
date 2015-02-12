@@ -54,6 +54,7 @@
 /**
  * Configuration
  */
+#define UART_SPEED		115200
 
 #define FEEDING_SLOT_COUNT	3
 
@@ -442,7 +443,7 @@ void rf24_init()
 void setup()
 {
 
-	Serial.begin(9600);
+	Serial.begin(UART_SPEED);
 	Serial.print("Cat feeder started\n");
 	pinMode(PIN_SENSOR, INPUT);
 	pinMode(PIN_KEYS, INPUT_PULLUP);
