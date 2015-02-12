@@ -3,6 +3,8 @@
 #include <DS1302.h>
 #include <EEPROM.h>
 #include <avr/eeprom.h>
+#include <SPI.h>
+#include "RF24.h"
 
 
 #define CATFEEDER_VERSION	0x01
@@ -26,6 +28,9 @@
 #define PIN_LCD_D6		3
 #define PIN_LCD_D7		2
 
+
+#define PIN_RF24_CE		9
+#define PIN_RF24_CSN		10
 /**
  * Servo
  */
@@ -133,9 +138,11 @@ byte down[8] = {
 Servo feeder;
 LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_ENABLE, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7);
 DS1302 rtc(PIN_CLOCK_CE, PIN_CLOCK_IO, PIN_CLOCK_SCLK);
+RF24 radio(PIN_RF24_CE, PIN_RF24_CSN);
 
 static float total_feeding_grams = 0;
 static float grams_per_portion = GRAMS_PER_PORTION;
+const uint64_t rf24_write_pipe = 0xF0F0F0F0D2LL; 
 
 /**
  * Action and display prototypes
@@ -224,7 +231,7 @@ struct menu_entry slot_entries_ ##__slot[] = 	\
 		NULL,	\
 	},	\
 	{	\
-		"Skip",	\
+		"Skip today",	\
 		skip_action,	\
 		skip_display,	\
 		NULL,	\
@@ -386,11 +393,14 @@ void print_time(Time t)
 		lcd.print("0");
 	lcd.print(t.min);
 }
-
+/**
+ *  Init
+ */
 void eeprom_init()
 {
 	int i;
 
+	Serial.println("Init EEPROM");
 	if (EEPROM.read(EEPROM_VERSION_ADDR) != CATFEEDER_VERSION) {
 		EEPROM.write(EEPROM_VERSION_ADDR, CATFEEDER_VERSION);
 
@@ -407,6 +417,26 @@ void eeprom_init()
 		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
 			eeprom_read_slot(i);
 	}
+	Serial.println("Init EEPROM Done");
+}
+
+void rf24_init()
+{
+	const char msg[] = "rf24 ready";
+
+	Serial.println("Init RF24");
+	radio.begin();
+        radio.enableDynamicPayloads();
+        radio.setAutoAck(1);
+        radio.setRetries(15,15);
+        radio.setDataRate(RF24_250KBPS);
+        radio.setPALevel(RF24_PA_MAX);
+        radio.setChannel(70);
+        radio.setCRCLength(RF24_CRC_8);
+        
+        radio.openWritingPipe(rf24_write_pipe);
+        radio.write( msg, strlen(msg) + 1);
+	Serial.println("Init RF24 Done");
 }
 
 void setup()
@@ -427,7 +457,8 @@ void setup()
         lcd.createChar(CHAR_DOWN, down);
 
 	rtc.halt(false);
-	
+
+	rf24_init();
 	eeprom_init();
 
 	disp_running(rtc.time());
@@ -601,8 +632,8 @@ void feed_now_action(void *data, int button)
 	int slot_idx = (int) data;
 	
 	if (button == KEY_ENTER) {
-		feed(feeding_slots[slot_idx].qty);
 		feeding_slots[slot_idx].has_been_fed = 1;
+		feed(feeding_slots[slot_idx].qty);
 	}
 }
 
@@ -875,16 +906,15 @@ out:
 
 int check_feeding_slot(Time t, int slot)
 {
-	if (!feeding_slots[slot].enable || feeding_slots[slot].has_been_fed)
+	if (!feeding_slots[slot].enable || feeding_slots[slot].has_been_fed == 1)
 		return 0;
 	
 	if (feeding_slots[slot].hour != t.hr ||
 		feeding_slots[slot].min != t.min)
 		return 0;
 
-	feed(feeding_slots[slot].qty);
-
 	feeding_slots[slot].has_been_fed = 1;
+	feed(feeding_slots[slot].qty);
 
 	return 1;
 }
@@ -957,10 +987,14 @@ void loop()
 {	
 	Time t;
 	int i;
+	const char msg[] = "Checking feed";
 
 	if ((millis() - last_millis) > TIME_CHECKING) {
 		last_millis = millis();
-		Serial.print("Checking feed: ");
+		
+		radio.write( msg, strlen(msg) + 1);
+
+		Serial.print(msg);
 		Serial.print(last_millis);
 		Serial.print("\n");
 		t = rtc.time();
