@@ -1,3 +1,6 @@
 [submodule "RF24"]
 	path = RF24
 	url = https://github.com/TMRh20/RF24
+[submodule "DS1302"]
+	path = DS1302
+	url = https://github.com/msparks/arduino-ds1302.git
