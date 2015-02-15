@@ -6,6 +6,7 @@
 #include <SPI.h>
 #include "RF24.h"
 
+#include "catfeeder_com.h"
 
 #define CATFEEDER_VERSION	0x01
 
@@ -31,12 +32,18 @@
 
 #define PIN_RF24_CE		9
 #define PIN_RF24_CSN		10
+
 /**
  * Servo
  */
 
 #define SERVO_FIX_VALUE		109
 #define SERVO_MOVE_VALUE	50
+
+/**
+ * Radio
+ */
+#define RADIO_MAX_PAYLOAD	40
 
 /** 
  * Button ADC values
@@ -143,7 +150,6 @@ RF24 radio(PIN_RF24_CE, PIN_RF24_CSN);
 
 static float total_feeding_grams = 0;
 static float grams_per_portion = GRAMS_PER_PORTION;
-const uint64_t rf24_write_pipe = 0xF0F0F0F0D2LL; 
 
 /**
  * Action and display prototypes
@@ -423,20 +429,20 @@ void eeprom_init()
 
 void rf24_init()
 {
-	const char msg[] = "rf24 ready";
-
 	Serial.println("Init RF24");
 	radio.begin();
         radio.enableDynamicPayloads();
         radio.setAutoAck(1);
         radio.setRetries(15,15);
-        radio.setDataRate(RF24_250KBPS);
+        radio.setDataRate(CATFEEDER_RF24_SPEED);
         radio.setPALevel(RF24_PA_MAX);
         radio.setChannel(70);
         radio.setCRCLength(RF24_CRC_8);
-        
-        radio.openWritingPipe(rf24_write_pipe);
-        radio.write( msg, strlen(msg) + 1);
+	radio.startListening();
+
+        radio.openWritingPipe(catfeeder_to_host_pipe);
+        radio.openReadingPipe(1, host_to_catfeeder_pipe);
+
 	Serial.println("Init RF24 Done");
 }
 
@@ -506,7 +512,10 @@ void feed(int part)
 
 	if (part == 0)	
 		return;
-
+	
+	Serial.print("Feeding ");
+	Serial.print(orig_part * grams_per_portion);
+	Serial.println(" grams");
 	lcd_reset();
 	lcd.print("<Feeding>");
 
@@ -940,47 +949,41 @@ void disp_running(Time t)
 	print_time(t);
 }
 
-static int last_day = -1;
-
-void serial_handle()
+/**
+ *  Radio
+ */
+void handle_radio_cmd(struct cf_cmd_req *req)
 {
-	int i;
-	char c = Serial.read();
-	float grams_per_day = 0;
-
-	switch (c) {
-		case 's':
-			for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
-				Serial.print("\nSlot ");
-				Serial.print(i);
-				Serial.print("\n  Has been fed: ");
-				Serial.print(feeding_slots[i].has_been_fed);
-				Serial.print("\n  Quantity: ");
-				Serial.print(feeding_slots[i].qty);
-				Serial.print("\n  Quantity (grams): ");
-				Serial.print(feeding_slots[i].qty * grams_per_portion, 1);
-				Serial.print(" g\n  Enable: ");
-				Serial.print(feeding_slots[i].enable);
-				Serial.print("\n  Time: ");
-				Serial.print(feeding_slots[i].hour);
-				Serial.print(":");
-				Serial.println(feeding_slots[i].min);
-				grams_per_day += feeding_slots[i].qty * grams_per_portion;
-			}
-
-			Serial.print("\nTotal feeding grams: ");
-			Serial.println(total_feeding_grams, 1);
-			Serial.print("\nGrams per day: ");
-			Serial.println(grams_per_day, 1);
+	switch (req->type) {
+		case CF_MISC_FORCE_FEED:
+			feed(req->cmd.force_feed.byte);
 		break;
-		case 'r':
-			eeprom_read_total_qty();
+		default:
 		break;
-		case 'w':
-			eeprom_write_total_qty();
-		break;
-	};
+	}
 }
+
+void radio_handle()
+{
+	uint8_t len;
+	struct cf_cmd_req *req;
+	uint8_t buff[(uint8_t) -1];
+	req = (struct cf_cmd_req *) buff;
+
+	while (radio.available()) {
+		len = radio.getDynamicPayloadSize();
+		Serial.print("Received message over serial, len:");
+		Serial.println(len);
+
+		radio.read(buff, len);
+		/* Discard the message if unexpected length */
+		if (len != sizeof(struct cf_cmd_req))
+			continue;
+		handle_radio_cmd(req);
+	}
+}
+
+static int last_day = -1;
 
 static unsigned long last_millis = 0;
 
@@ -988,16 +991,10 @@ void loop()
 {	
 	Time t;
 	int i;
-	const char msg[] = "Checking feed";
 
 	if ((millis() - last_millis) > TIME_CHECKING) {
 		last_millis = millis();
 		
-		radio.write( msg, strlen(msg) + 1);
-
-		Serial.print(msg);
-		Serial.print(last_millis);
-		Serial.print("\n");
 		t = rtc.time();
 		/* Reset the slots */
 		if (last_day != t.day) {
@@ -1017,8 +1014,8 @@ void loop()
 		disp_running(t);
 	}
 	
-	if (Serial.available()) {
-		serial_handle();
+	if (radio.available()) {
+		radio_handle();
 	}
 
 	delay(100);

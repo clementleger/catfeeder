@@ -30,66 +30,70 @@
 #include <cstdlib>
 #include <iostream>
 #include <RF24/RF24.h>
+#include <cmdline.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+#include <catfeeder_com.h>
 
 using namespace std;
-
-// Radio pipe addresses for the 2 nodes to communicate.
-// First pipe is for writing, 2nd, 3rd, 4th, 5th & 6th is for reading...
-const uint64_t read_pipe = 0xF0F0F0F0D2LL; 
 
 // Setup for GPIO 22 CE and CE1 CSN with SPI Speed @ 8Mhz
 RF24 radio(RPI_V2_GPIO_P1_22, RPI_V2_GPIO_P1_24, BCM2835_SPI_SPEED_1MHZ);  
 
-int main(int argc, char** argv) 
+void rf24_init()
 {
-	uint8_t len;
 
 	// Refer to RF24.h or nRF24L01 DS for settings
 	radio.begin();
 	radio.enableDynamicPayloads();
 	radio.setAutoAck(1);
 	radio.setRetries(15,15);
-	radio.setDataRate(RF24_250KBPS);
+	radio.setDataRate(CATFEEDER_RF24_SPEED);
 	radio.setPALevel(RF24_PA_MAX);
 	radio.setChannel(70);
 	radio.setCRCLength(RF24_CRC_8);
 
-	radio.openReadingPipe(1, read_pipe);
+        radio.openWritingPipe(host_to_catfeeder_pipe);
+        radio.openReadingPipe(1, catfeeder_to_host_pipe);
+}
 
-	//
-	// Start listening
-	//
-	radio.startListening();
-
-	//
-	// Dump the configuration of the rf unit for debugging
-	//
-	radio.printDetails();
+void rf24_send_force_feed(uint8_t qty) {
 	
-	printf("Output below : \n");
-	delay(1);
-	radio.startListening();
+	struct cf_cmd_req req;
 	
-	while(1)
-	{
-		char receivePayload[32];
-		
-		// Start listening
-					
-		while ( radio.available() ) 
-		{
-			len = radio.getDynamicPayloadSize();
-			radio.read( receivePayload, len );
+	req.type = CF_MISC_FORCE_FEED;
+	req.cmd.force_feed.byte = qty;
 
-			// Display it on screen
-			printf("Recv: size=%i payload=%s\n",len,receivePayload);
-
-		}
-
-		delayMicroseconds(20);
-	}
-	// Send back payload to sender
+	printf("Feeding %d parts\n", qty);
+	
 	radio.stopListening();
+	radio.write(&req, sizeof(req));
+	radio.startListening();
+}
+
+
+int main(int argc, char** argv) 
+{
+	struct gengetopt_args_info args_info;
+	
+	cmdline_parser_init(&args_info);
+
+	if (cmdline_parser(argc, argv, &args_info) != 0)
+		return 1;
+
+	if (open("/dev/mem", O_RDONLY) < 0) {
+		printf("root rights required\n");
+		return 1;
+	}
+
+	rf24_init();
+	
+	if (args_info.feed_given) {
+		rf24_send_force_feed(args_info.feed_arg);
+	}
 	
 	return 0;
 }

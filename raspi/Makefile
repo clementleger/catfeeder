@@ -15,18 +15,21 @@ prefix := /usr/local
 
 # The recommended compiler flags for the Raspberry Pi
 CCFLAGS=-Ofast -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
+CCFLAGS += -I ../arduino/catfeeder/
 #CCFLAGS=
 
 # define all programs
 PROGRAMS = catfeeder
 
-SOURCES = ${PROGRAMS:=.cpp}
+SOURCES = catfeeder.cpp cmdline.c
 
 all: ${PROGRAMS}
 
 ${PROGRAMS}: ${SOURCES}
-	g++ ${CCFLAGS} -Wall -lrf24-bcm $@.cpp -o $@
+	g++ ${CCFLAGS} -I. -Wall -lrf24-bcm ${SOURCES} -o $@
+
+cmdline.c: catfeeder.ggo
+	gengetopt < $<
 
 clean:
-	rm -rf $(PROGRAMS)
-
+	rm -rf $(PROGRAMS) cmdline.c cmdline.h
