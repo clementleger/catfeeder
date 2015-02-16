@@ -38,7 +38,7 @@
  */
 
 #define SERVO_FIX_VALUE		109
-#define SERVO_MOVE_VALUE	50
+#define SERVO_MOVE_VALUE	1
 
 /**
  * Radio
@@ -949,14 +949,72 @@ void disp_running(Time t)
 	print_time(t);
 }
 
+void radio_send(cf_cmd_resp_t *resp)
+{
+	radio.stopListening();
+	radio.write(resp, sizeof(*resp));
+	radio.startListening();
+}
+
 /**
  *  Radio
  */
 void handle_radio_cmd(struct cf_cmd_req *req)
 {
+	cf_cmd_resp_t resp;
+
 	switch (req->type) {
 		case CF_MISC_FORCE_FEED:
-			feed(req->cmd.force_feed.byte);
+			feed(req->cmd.qty);
+		break;
+		case CF_CAL_VALUE_GET:
+			Serial.println("Getting calibration value");
+			resp.type = CF_CAL_VALUE_GET;
+			resp.cmd.cal_value = grams_per_portion;
+			radio_send(&resp);
+		break;
+		case CF_SLOT_GET_COUNT:
+			Serial.println("Getting slot count");
+			resp.type = CF_SLOT_GET_COUNT;
+			resp.cmd.slot_count = FEEDING_SLOT_COUNT;
+			radio_send(&resp);
+		break;
+		case CF_SLOT_GET:
+			Serial.print("Getting slot ");
+			Serial.println(req->cmd.slotidx);
+			resp.type = CF_SLOT_GET;
+			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
+				return;
+
+			resp.cmd.slot.qty = feeding_slots[req->cmd.slotidx].qty;
+			resp.cmd.slot.hour = feeding_slots[req->cmd.slotidx].hour;
+			resp.cmd.slot.min = feeding_slots[req->cmd.slotidx].min;
+			resp.cmd.slot.enable = feeding_slots[req->cmd.slotidx].enable;
+			radio_send(&resp);
+		break;
+		case CF_SLOT_FEED:
+			Serial.print("Manual feeding slot ");
+			Serial.println(req->cmd.slotidx);
+			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
+				return;
+
+			if (feeding_slots[req->cmd.slotidx].has_been_fed)
+				return;
+
+			feeding_slots[req->cmd.slotidx].has_been_fed = 1;
+			feed(feeding_slots[req->cmd.slotidx].qty);
+		break;
+		case CF_SLOT_SET:
+			Serial.print("Setting slot ");
+			Serial.println(req->cmd.slot.idx);
+			if (req->cmd.slot.idx >= FEEDING_SLOT_COUNT)
+				return;
+
+			feeding_slots[req->cmd.slot.idx].qty = resp.cmd.slot.qty; 
+			feeding_slots[req->cmd.slot.idx].hour = resp.cmd.slot.hour; 
+			feeding_slots[req->cmd.slot.idx].min = resp.cmd.slot.min; 
+			feeding_slots[req->cmd.slot.idx].enable = resp.cmd.slot.enable;
+			radio_send(&resp);
 		break;
 		default:
 		break;
@@ -966,9 +1024,9 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 void radio_handle()
 {
 	uint8_t len;
-	struct cf_cmd_req *req;
+	cf_cmd_req_t *req;
 	uint8_t buff[(uint8_t) -1];
-	req = (struct cf_cmd_req *) buff;
+	req = (cf_cmd_req_t *) buff;
 
 	while (radio.available()) {
 		len = radio.getDynamicPayloadSize();

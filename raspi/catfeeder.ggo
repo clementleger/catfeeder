@@ -4,15 +4,15 @@ version "1.0"
 # Options
 
 defgroup "action" groupdesc="Action to execute" required
-groupoption  "cal"         g "Get calibration value" group="action"
-groupoption  "slotcount"   G "Get slot count" group="action"
-groupoption  "slot"        s "set slot value" int optional group="action"
-groupoption  "feed"        f "Feed the cat with count of portions" int optional group="action"
-groupoption  "slotfeed"    F "Feed a particular slot right now" int optional group="action"
+groupoption  "get-cal"          g "Get calibration value" group="action"
+groupoption  "get-slot-count"   S "Get slot count" group="action"
+groupoption  "get-slot"         G "Get slot value" int optional group="action"
+groupoption  "set-slot"         s "Set slot value" int optional group="action"
+groupoption  "force-feed"       f "Feed the cat with count of portions" int optional group="action"
+groupoption  "slot-feed"        F "Feed a particular slot right now" int optional group="action"
 
-
+section "Arguments for set slot"
 option "quantity"	q "Set quantity" int optional
 option "hour"		H "Set hour" int optional
 option "minute"		m "Set minutes" int optional
 option "enable"		e "Enable or disable the slot" int optional
-option "index"		i "Slot index" int optional

@@ -35,6 +35,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include <catfeeder_com.h>
 
@@ -60,25 +61,122 @@ void rf24_init()
         radio.openReadingPipe(1, catfeeder_to_host_pipe);
 }
 
-void rf24_send_force_feed(uint8_t qty) {
-	
-	struct cf_cmd_req req;
-	
-	req.type = CF_MISC_FORCE_FEED;
-	req.cmd.force_feed.byte = qty;
-
-	printf("Feeding %d parts\n", qty);
-	
+int rf24_send_data(cf_cmd_req_t *req)
+{
 	radio.stopListening();
-	radio.write(&req, sizeof(req));
+	if (!radio.write(req, sizeof(*req))) {
+		printf("Write failed");
+		return 1;
+	}
 	radio.startListening();
+
+	return 0;
+}
+
+
+int rf24_recv_data(cf_cmd_resp_t *resp)
+{
+	int i = 20;
+	uint8_t len;
+
+	while(i--) {
+		usleep(50000);
+		if (radio.available()) {
+			len = radio.getDynamicPayloadSize();
+			radio.read(resp, len);
+
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+int rf24_send_recv(cf_cmd_req_t *req, cf_cmd_resp_t *resp)
+{
+	if(rf24_send_data(req))
+		return 1;
+
+	if(rf24_recv_data(resp))
+		return 1;
+
+	return 0;
+}
+
+int rf24_slot_feed(uint8_t slotidx)
+{	
+	cf_cmd_req_t req;
+
+	req.type = CF_SLOT_FEED;
+	req.cmd.slotidx = slotidx;
+
+	return rf24_send_data(&req);
+}
+
+int rf24_send_force_feed(uint8_t qty)
+{	
+	cf_cmd_req_t req;
+
+	req.type = CF_MISC_FORCE_FEED;
+	req.cmd.qty = qty;
+
+	return rf24_send_data(&req);
+}
+
+int rf24_get_cal()
+{	
+	cf_cmd_req_t req;
+	cf_cmd_resp_t resp;
+
+	req.type = CF_CAL_VALUE_GET;
+
+	if (rf24_send_recv(&req, &resp))
+		return 1;
+
+	printf("Calibration value: %f\n", resp.cmd.cal_value);
+	
+	return 0;
+}
+
+int rf24_get_slot_count()
+{	
+	cf_cmd_req_t req;
+	cf_cmd_resp_t resp;
+
+	req.type = CF_SLOT_GET_COUNT;
+
+	if (rf24_send_recv(&req, &resp))
+		return 1;
+
+	printf("Slot count: %d\n", resp.cmd.slot_count);
+	
+	return 0;
+}
+
+int rf24_get_slot(uint8_t slot_idx)
+{	
+	cf_cmd_req_t req;
+	cf_cmd_resp_t resp;
+
+	req.type = CF_SLOT_GET;
+	req.cmd.slotidx = slot_idx;
+
+	if (rf24_send_recv(&req, &resp))
+		return 1;
+
+	printf("Slot hour: %d\n", resp.cmd.slot.hour);
+	printf("Slot min: %d\n", resp.cmd.slot.min);
+	printf("Slot qty: %d\n", resp.cmd.slot.qty);
+	printf("Slot enabled: %d\n", resp.cmd.slot.enable);
+
+	return 0;
 }
 
 
 int main(int argc, char** argv) 
 {
 	struct gengetopt_args_info args_info;
-	
+
 	cmdline_parser_init(&args_info);
 
 	if (cmdline_parser(argc, argv, &args_info) != 0)
@@ -91,10 +189,26 @@ int main(int argc, char** argv)
 
 	rf24_init();
 	
-	if (args_info.feed_given) {
-		rf24_send_force_feed(args_info.feed_arg);
+	if (args_info.force_feed_given) {
+		return rf24_send_force_feed(args_info.force_feed_arg);
 	}
-	
+
+	if (args_info.get_cal_given) {
+		return rf24_get_cal();
+	}
+
+	if (args_info.get_slot_count_given) {
+		return rf24_get_slot_count();
+	}
+
+	if (args_info.get_slot_given) {
+		return rf24_get_slot(args_info.get_slot_arg);
+	}
+
+	if (args_info.slot_feed_given) {
+		return rf24_slot_feed(args_info.slot_feed_arg);
+	}
+
 	return 0;
 }
 
