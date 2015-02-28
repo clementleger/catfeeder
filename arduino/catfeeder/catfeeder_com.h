@@ -13,6 +13,7 @@ enum cf_command_type {
 	CD_ERROR = 0,
 	CF_MISC_FORCE_FEED,
 	CF_CAL_VALUE_GET,
+	CF_STAT_GET,
 	CF_SLOT_GET_COUNT,
 	CF_SLOT_GET,
 	CF_SLOT_SET,
@@ -42,6 +43,7 @@ typedef struct cf_cmd_resp {
 	uint8_t type;
 	union {
 		float cal_value;
+		float stat_total;
 		uint8_t slot_count;
 		struct {
 			uint8_t hour;

@@ -8,7 +8,7 @@
 
 #include "catfeeder_com.h"
 
-#define CATFEEDER_VERSION	0x01
+#define CATFEEDER_VERSION	0x02
 
 /**
  * PINS 
@@ -63,7 +63,7 @@
  */
 #define UART_SPEED		115200
 
-#define FEEDING_SLOT_COUNT	3
+#define FEEDING_SLOT_COUNT	8
 
 #define HOURS_PER_DAY		24
 #define MINUTES_PER_HOUR	60
@@ -192,13 +192,28 @@ struct feeding_slot {
 struct feeding_slot feeding_slots[FEEDING_SLOT_COUNT] =
 {
 	{
-		7, 30, 1, 8, 0,
+		7, 30, 1, 4, 0,
 	},
 	{
-		13, 0, 1, 4, 0,
+		9, 0, 1, 3, 0,
 	},
 	{
-		19, 0, 1, 8, 0,
+		11, 30, 1, 2, 0,
+	},
+	{
+		14, 0, 1, 2, 0,
+	},
+	{
+		16, 30, 1, 2, 0,
+	},
+	{
+		19, 0, 1, 3, 0,
+	},
+	{
+		21, 30, 1, 3, 0,
+	},
+	{
+		23, 0, 1, 2, 0,
 	},
 };
 
@@ -222,7 +237,7 @@ struct menu {
 extern struct menu main_menu;
 extern struct menu configure_menu;
 
-#define slot_menu(__slot)		\
+#define SLOT_MENU(__slot)		\
 struct menu_entry slot_entries_ ##__slot[] = 	\
 {	\
 	{	\
@@ -264,33 +279,35 @@ struct menu slot_menu_ ## __slot = {	\
 	(void *) (__slot - 1),		\
 }
 
-slot_menu(1);
-slot_menu(2);
-slot_menu(3);
+SLOT_MENU(1);
+SLOT_MENU(2);
+SLOT_MENU(3);
+SLOT_MENU(4);
+SLOT_MENU(5);
+SLOT_MENU(6);
+SLOT_MENU(7);
+SLOT_MENU(8);
 
+#define CONFIGURE_SLOT_ENTRY(__slot) 	\
+	{				\
+		"Slot " str(__slot),	\
+		NULL,			\
+		NULL,			\
+		&slot_menu_ ## __slot,	\
+	},
 /**
  *  Configuration
  */
 struct menu_entry configure_entries[] =
 {
-	{
-		"Slot 1",
-		NULL,
-		NULL,
-		&slot_menu_1,
-	},
-	{
-		"Slot 2",
-		NULL,
-		NULL,
-		&slot_menu_2,
-	},
-	{
-		"Slot 3",
-		NULL,
-		NULL,
-		&slot_menu_3,
-	},
+	CONFIGURE_SLOT_ENTRY(1)
+	CONFIGURE_SLOT_ENTRY(2)
+	CONFIGURE_SLOT_ENTRY(3)
+	CONFIGURE_SLOT_ENTRY(4)
+	CONFIGURE_SLOT_ENTRY(5)
+	CONFIGURE_SLOT_ENTRY(6)
+	CONFIGURE_SLOT_ENTRY(7)
+	CONFIGURE_SLOT_ENTRY(8)
 };
 
 struct menu configure_menu = {
@@ -454,8 +471,6 @@ void setup()
 	pinMode(PIN_SENSOR, INPUT);
 	pinMode(PIN_KEYS, INPUT_PULLUP);
 
-	feeder.attach(PIN_SERVO);
-	feeder.write(SERVO_FIX_VALUE);
 	
 	lcd.begin(16, 2);
 
@@ -522,6 +537,8 @@ void feed(int part)
 	lcd.setCursor(0, 1);
 	lcd.print(orig_part * grams_per_portion, 1);
 	lcd.print(" grams");
+	
+	feeder.attach(PIN_SERVO);
 	feeder.write(SERVO_MOVE_VALUE);
 	delay(1000); 
 
@@ -539,6 +556,7 @@ out:
 	eeprom_write_total_qty();
 
 	feeder.write(SERVO_FIX_VALUE);
+	feeder.detach();
 	lcd_reset();
 }
 
@@ -973,6 +991,12 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			resp.cmd.cal_value = grams_per_portion;
 			radio_send(&resp);
 		break;
+		case CF_STAT_GET:
+			Serial.println("Getting statistics");
+			resp.type = CF_STAT_GET;
+			resp.cmd.stat_total = total_feeding_grams;
+			radio_send(&resp);
+		break;
 		case CF_SLOT_GET_COUNT:
 			Serial.println("Getting slot count");
 			resp.type = CF_SLOT_GET_COUNT;
@@ -1041,6 +1065,9 @@ void radio_handle()
 	}
 }
 
+/**
+ *  Main loop
+ */
 static int last_day = -1;
 
 static unsigned long last_millis = 0;
