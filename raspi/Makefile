@@ -21,15 +21,12 @@ CCFLAGS += -I ../arduino/catfeeder/
 # define all programs
 PROGRAMS = catfeeder
 
-SOURCES = catfeeder.cpp cmdline.c
+SOURCES = catfeeder.cpp
 
 all: ${PROGRAMS}
 
 ${PROGRAMS}: ${SOURCES}
-	g++ ${CCFLAGS} -I. -Wall -lrf24-bcm ${SOURCES} -o $@
-
-cmdline.c: catfeeder.ggo
-	gengetopt < $<
+	g++ ${CCFLAGS} -I. -Wall -lmicrohttpd -lrf24-bcm ${SOURCES} -o $@
 
 clean:
-	rm -rf $(PROGRAMS) cmdline.c cmdline.h
+	rm -rf $(PROGRAMS)

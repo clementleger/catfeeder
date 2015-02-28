@@ -37,14 +37,26 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <stdio.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+#include <microhttpd.h>
+
 #include <catfeeder_com.h>
+
+#define PORT    	5454
+#define RESP_SIZE  	1024
 
 using namespace std;
 
 // Setup for GPIO 22 CE and CE1 CSN with SPI Speed @ 8Mhz
 RF24 radio(RPI_V2_GPIO_P1_22, RPI_V2_GPIO_P1_24, BCM2835_SPI_SPEED_1MHZ);  
 
-void rf24_init()
+static void
+rf24_init()
 {
 
 	// Refer to RF24.h or nRF24L01 DS for settings
@@ -61,7 +73,8 @@ void rf24_init()
         radio.openReadingPipe(1, catfeeder_to_host_pipe);
 }
 
-int rf24_send_data(cf_cmd_req_t *req)
+static int
+rf24_send_data(cf_cmd_req_t *req)
 {
 	radio.stopListening();
 	if (!radio.write(req, sizeof(*req))) {
@@ -74,9 +87,10 @@ int rf24_send_data(cf_cmd_req_t *req)
 }
 
 
-int rf24_recv_data(cf_cmd_resp_t *resp)
+static int
+rf24_recv_data(cf_cmd_resp_t *resp)
 {
-	int i = 20;
+	int i = 10;
 	uint8_t len;
 
 	while(i--) {
@@ -92,7 +106,8 @@ int rf24_recv_data(cf_cmd_resp_t *resp)
 	return 1;
 }
 
-int rf24_send_recv(cf_cmd_req_t *req, cf_cmd_resp_t *resp)
+static int
+rf24_send_recv(cf_cmd_req_t *req, cf_cmd_resp_t *resp)
 {
 	if(rf24_send_data(req))
 		return 1;
@@ -103,7 +118,8 @@ int rf24_send_recv(cf_cmd_req_t *req, cf_cmd_resp_t *resp)
 	return 0;
 }
 
-int rf24_slot_feed(uint8_t slotidx)
+static int
+rf24_slot_feed(uint8_t slotidx)
 {	
 	cf_cmd_req_t req;
 
@@ -113,17 +129,21 @@ int rf24_slot_feed(uint8_t slotidx)
 	return rf24_send_data(&req);
 }
 
-int rf24_send_force_feed(uint8_t qty)
+static int
+rf24_send_force_feed(uint8_t qty)
 {	
 	cf_cmd_req_t req;
 
 	req.type = CF_MISC_FORCE_FEED;
 	req.cmd.qty = qty;
+	
+	printf("Radio: sending force feeding\n");
 
 	return rf24_send_data(&req);
 }
 
-int rf24_get_cal()
+static int
+rf24_get_cal(char *resp_str)
 {	
 	cf_cmd_req_t req;
 	cf_cmd_resp_t resp;
@@ -133,12 +153,29 @@ int rf24_get_cal()
 	if (rf24_send_recv(&req, &resp))
 		return 1;
 
-	printf("Calibration value: %f\n", resp.cmd.cal_value);
-	
+	sprintf(resp_str, "{ \"cal_calue\": \"%.02f\" }", resp.cmd.cal_value);
+
 	return 0;
 }
 
-int rf24_get_slot_count()
+static int
+rf24_get_stat(char *resp_str)
+{	
+	cf_cmd_req_t req;
+	cf_cmd_resp_t resp;
+
+	req.type = CF_STAT_GET;
+
+	if (rf24_send_recv(&req, &resp))
+		return 1;
+
+	sprintf(resp_str, "{ \"total_feed\": \"%.02f\" }", resp.cmd.stat_total);
+
+	return 0;
+}
+
+static int
+rf24_get_slot_count(char *resp_str)
 {	
 	cf_cmd_req_t req;
 	cf_cmd_resp_t resp;
@@ -148,67 +185,211 @@ int rf24_get_slot_count()
 	if (rf24_send_recv(&req, &resp))
 		return 1;
 
-	printf("Slot count: %d\n", resp.cmd.slot_count);
-	
+	sprintf(resp_str, "{ \"slot_count\": \"%d\" }", resp.cmd.slot_count);
+
 	return 0;
 }
 
-int rf24_get_slot(uint8_t slot_idx)
+static int
+rf24_get_slot(uint8_t slot_idx, char *resp_str)
 {	
 	cf_cmd_req_t req;
 	cf_cmd_resp_t resp;
-
 	req.type = CF_SLOT_GET;
 	req.cmd.slotidx = slot_idx;
 
 	if (rf24_send_recv(&req, &resp))
 		return 1;
 
-	printf("Slot hour: %d\n", resp.cmd.slot.hour);
-	printf("Slot min: %d\n", resp.cmd.slot.min);
-	printf("Slot qty: %d\n", resp.cmd.slot.qty);
-	printf("Slot enabled: %d\n", resp.cmd.slot.enable);
+	sprintf(resp_str, "{ \"hour\": \"%d\", "
+				     "\"min\": \"%d\", "
+				     "\"qty\": \"%d\", "
+				     "\"enable\": \"%d\" }"
+					, resp.cmd.slot.hour
+					, resp.cmd.slot.min
+					, resp.cmd.slot.qty
+					, resp.cmd.slot.enable);
+
+	return 0;
+}
+
+static int
+rf24_set_slot(uint8_t idx, uint8_t hour, uint8_t min, uint8_t qty, uint8_t enable)
+{	
+	cf_cmd_req_t req;
+
+	req.type = CF_SLOT_GET;
+	req.cmd.slot.idx = idx;
+	req.cmd.slot.hour = hour;
+	req.cmd.slot.min = min;
+	req.cmd.slot.qty = qty;
+	req.cmd.slot.enable = enable;
+
+	if (rf24_send_data(&req))
+		return 1;
 
 	return 0;
 }
 
 
-int main(int argc, char** argv) 
+/**
+ *  Connection stuff
+ */
+
+static int
+get_param_value(struct MHD_Connection *connection, const char *key, int *value)
 {
-	struct gengetopt_args_info args_info;
-
-	cmdline_parser_init(&args_info);
-
-	if (cmdline_parser(argc, argv, &args_info) != 0)
+	const char * str_value = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, key);
+	if (str_value == NULL || str_value[0] == '\0')
 		return 1;
+		
+	*value = atoi(str_value);
+	return 0;
+}
 
+static int
+handle_client_command(const char *url, struct MHD_Connection *connection)
+{
+	int http_ret = MHD_HTTP_NOT_FOUND, ret;
+	char resp_buffer[RESP_SIZE] = {0};
+	struct MHD_Response *response;
+	
+	printf("Handling url %s\n", url);
+
+	if (strncmp(url, "feed", 4) == 0) {
+		int qty;
+		if (get_param_value(connection, "qty", &qty) != 0) {
+			printf("Missing parameter qty\n");
+			goto out;
+		}
+
+		printf("Receive force feed %d\n", qty);
+		if (rf24_send_force_feed(qty))
+			goto out;
+
+	} else if (strncmp(url, "slotfeed", 8) == 0) {
+		int id;
+		if (get_param_value(connection, "id", &id) != 0) {	
+			printf("Missing parameter id\n");
+			goto out;
+		}
+
+		printf("Receive slot feed %d\n", id);
+
+		if (rf24_slot_feed(id))
+			goto out;
+
+	}else if (strncmp(url, "setslot", 8) == 0) {
+		int id, hour, min, qty, enable;
+		if (get_param_value(connection, "id", &id) != 0) {	
+			printf("Missing parameter id\n");
+			goto out;
+		}
+		if (get_param_value(connection, "hour", &hour) != 0) {	
+			printf("Missing parameter hour\n");
+			goto out;
+		}
+		if (get_param_value(connection, "min", &min) != 0) {	
+			printf("Missing parameter min\n");
+			goto out;
+		}
+		if (get_param_value(connection, "qty", &qty) != 0) {	
+			printf("Missing parameter qty\n");
+			goto out;
+		}
+		if (get_param_value(connection, "enable", &enable) != 0) {	
+			printf("Missing parameter enable\n");
+			goto out;
+		}
+
+		printf("Receive set slot %d, %d:%d, %d parts, enabled: %d\n", id, hour, min, qty, enable);
+
+		if (rf24_set_slot(id, hour, min, qty, enable))
+			goto out;
+
+	} else if (strncmp(url, "getslotcount", 12) == 0) {
+		if (rf24_get_slot_count(resp_buffer))
+			goto out;
+
+	} else if (strncmp(url, "getslot", 7) == 0) {
+		int id;
+		if (get_param_value(connection, "id", &id) != 0) {	
+			printf("Missing parameter id\n");
+			goto out;
+		}
+		if (rf24_get_slot(id, resp_buffer))
+			goto out;
+
+	} else if (strncmp(url, "getcal", 6) == 0) {
+		if (rf24_get_cal(resp_buffer))
+			goto out;
+
+	} else if (strncmp(url, "getstat", 7) == 0) {
+		if (rf24_get_stat(resp_buffer))
+			goto out;
+
+	} else {
+		printf("Unknown request: %s\n", url);
+		goto out;
+	}
+	
+	http_ret = MHD_HTTP_OK;
+	printf("Sending response: %s\n", resp_buffer);
+out:
+	response = MHD_create_response_from_buffer (strlen (resp_buffer),
+					      (void *) resp_buffer,
+					      MHD_RESPMEM_PERSISTENT);
+	ret = MHD_queue_response (connection, http_ret, response);
+	MHD_destroy_response (response);
+	
+	return ret;
+}
+
+static int
+ahc_echo (void *cls,
+          struct MHD_Connection *connection,
+          const char *url,
+          const char *method,
+          const char *version,
+          const char *upload_data, size_t *upload_data_size, void **ptr)
+{
+	static int aptr;
+
+	/* Only handle GET request */
+	if (0 != strcmp (method, "GET"))
+		return MHD_NO;
+
+	if (&aptr != *ptr) {
+		/* do never respond on first call */
+		*ptr = &aptr;
+		return MHD_YES;
+	}
+
+	/* Skip the / */
+	*ptr = NULL;
+	return handle_client_command(url+1, connection);
+}
+
+int
+main (int argc, char *const *argv)
+{
+	struct MHD_Daemon *d;
+  
 	if (open("/dev/mem", O_RDONLY) < 0) {
 		printf("root rights required\n");
 		return 1;
 	}
-
 	rf24_init();
-	
-	if (args_info.force_feed_given) {
-		return rf24_send_force_feed(args_info.force_feed_arg);
-	}
 
-	if (args_info.get_cal_given) {
-		return rf24_get_cal();
-	}
+	d = MHD_start_daemon ( MHD_USE_SELECT_INTERNALLY | MHD_USE_DEBUG,
+                        PORT,
+                        NULL, NULL, &ahc_echo, NULL,
+			MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int) 120,
+			MHD_OPTION_END);
+	if (d == NULL)
+		return 1;
 
-	if (args_info.get_slot_count_given) {
-		return rf24_get_slot_count();
-	}
-
-	if (args_info.get_slot_given) {
-		return rf24_get_slot(args_info.get_slot_arg);
-	}
-
-	if (args_info.slot_feed_given) {
-		return rf24_slot_feed(args_info.slot_feed_arg);
-	}
+	while(1);
 
 	return 0;
 }
-
