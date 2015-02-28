@@ -1038,7 +1038,6 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			feeding_slots[req->cmd.slot.idx].hour = resp.cmd.slot.hour; 
 			feeding_slots[req->cmd.slot.idx].min = resp.cmd.slot.min; 
 			feeding_slots[req->cmd.slot.idx].enable = resp.cmd.slot.enable;
-			radio_send(&resp);
 		break;
 		default:
 		break;
