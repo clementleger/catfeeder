@@ -338,7 +338,7 @@ handle_client_command(const char *url, struct MHD_Connection *connection)
 out:
 	response = MHD_create_response_from_buffer (strlen (resp_buffer),
 					      (void *) resp_buffer,
-					      MHD_RESPMEM_PERSISTENT);
+					      MHD_RESPMEM_MUST_COPY);
 	ret = MHD_queue_response (connection, http_ret, response);
 	MHD_destroy_response (response);
 	
