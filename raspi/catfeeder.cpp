@@ -143,6 +143,20 @@ rf24_send_force_feed(uint8_t qty)
 }
 
 static int
+rf24_set_time(uint8_t hour, uint8_t min)
+{	
+	cf_cmd_req_t req;
+
+	req.type = CF_SET_TIME;
+	req.cmd.time.hour = hour;
+	req.cmd.time.min = min;
+	
+	printf("Radio: sending set time command\n");
+
+	return rf24_send_data(&req);
+}
+
+static int
 rf24_get_cal(char *resp_str)
 {	
 	cf_cmd_req_t req;
@@ -328,6 +342,18 @@ handle_client_command(const char *url, struct MHD_Connection *connection)
 		if (rf24_get_stat(resp_buffer))
 			goto out;
 
+	} else if (strncmp(url, "settime", 8) == 0) {
+		int hour, min;
+		if (get_param_value(connection, "hour", &hour) != 0) {	
+			printf("Missing parameter id\n");
+			goto out;
+		}
+		if (get_param_value(connection, "min", &min) != 0) {	
+			printf("Missing parameter hour\n");
+			goto out;
+		}
+		if (rf24_set_time(hour, min))
+			goto out;
 	} else {
 		printf("Unknown request: %s\n", url);
 		goto out;

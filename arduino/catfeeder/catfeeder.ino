@@ -478,6 +478,7 @@ void setup()
         lcd.createChar(CHAR_UPDOWN, updown);
         lcd.createChar(CHAR_DOWN, down);
 
+	rtc.write_protect(false);
 	rtc.halt(false);
 
 	rf24_init();
@@ -974,6 +975,15 @@ void radio_send(cf_cmd_resp_t *resp)
 	radio.startListening();
 }
 
+void time_set(byte hour, byte min)
+{
+	Time t = rtc.time();
+	t.min = min;
+	t.hr = hour;
+
+	rtc.time(t);
+}
+
 /**
  *  Radio
  */
@@ -984,6 +994,10 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 	switch (req->type) {
 		case CF_MISC_FORCE_FEED:
 			feed(req->cmd.qty);
+		break;
+		case CF_SET_TIME:
+			Serial.println("Setting time");
+			time_set(req->cmd.time.hour, req->cmd.time.min);
 		break;
 		case CF_CAL_VALUE_GET:
 			Serial.println("Getting calibration value");

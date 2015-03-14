@@ -18,6 +18,7 @@ enum cf_command_type {
 	CF_SLOT_GET,
 	CF_SLOT_SET,
 	CF_SLOT_FEED,
+	CF_SET_TIME,
 };
 
 /* Request */
@@ -34,6 +35,10 @@ typedef struct cf_cmd_req {
 			uint8_t qty;
 			uint8_t enable;
 		} slot;
+		struct {
+			uint8_t hour;
+			uint8_t min;
+		} time;
 	} cmd;
 } __packed__ cf_cmd_req_t;
 
