@@ -84,10 +84,12 @@
                 $dec_slot = json_decode($slot);
                 array_push($slots, $dec_slot);
                 $total_qty += $dec_slot->{"qty"} * $cal_value;
+
         }
-        
-        echo "<p>Total quantity per day ", $total_qty, " grams</p>";
-        
+
+        ?>
+        <p>Total quantity per day: <span id="totalqty"><?= $total_qty ?></span> grams</p>;
+        <?php
         for ($x = 0; $x < $slot_count; $x++) {
                 $slot_qty = $slots[$x]->{"qty"} * $cal_value;
                 $slot_time = sprintf("%02d:%02d",$slots[$x]->{"hour"}, $slots[$x]->{"min"});
@@ -101,7 +103,7 @@
                             </div>
                             <div class="form-group">
                               <label >Quantity</label>
-                              <input type="number" id="setslot<?= $x ?>qty" min="0" step="<?php echo $cal_value ?>" class="form-control" value="<?php echo $slot_qty ?>" >
+                              <input type="number" id="setslot<?= $x ?>qty" onchange="update_totalqty()" min="0" step="<?php echo $cal_value ?>" class="slotqty form-control" value="<?php echo $slot_qty ?>" >
                             </div>
                             <div class="form-group">
                               <label >Enable</label>
@@ -163,6 +165,14 @@
                         
                         });
         });
+        
+        function update_totalqty() {
+                var qty_sum = 0;
+                $('.slotqty').each(function(i, obj) {
+                       qty_sum +=  parseFloat($(this).val())
+                });
+                $("#totalqty").html((qty_sum).toFixed(1));
+        }
         </script>
     </body>
 </html>
