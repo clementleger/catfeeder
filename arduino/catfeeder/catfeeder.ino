@@ -424,7 +424,7 @@ void eeprom_init()
 {
 	int i;
 
-	Serial.println("Init EEPROM");
+	//Serial.println("Init EEPROM");
 	if (EEPROM.read(EEPROM_VERSION_ADDR) != CATFEEDER_VERSION) {
 		EEPROM.write(EEPROM_VERSION_ADDR, CATFEEDER_VERSION);
 
@@ -441,12 +441,12 @@ void eeprom_init()
 		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
 			eeprom_read_slot(i);
 	}
-	Serial.println("Init EEPROM Done");
+	//Serial.println("Init EEPROM Done");
 }
 
 void rf24_init()
 {
-	Serial.println("Init RF24");
+	//Serial.println("Init RF24");
 	radio.begin();
         radio.enableDynamicPayloads();
         radio.setAutoAck(1);
@@ -460,14 +460,14 @@ void rf24_init()
         radio.openWritingPipe(catfeeder_to_host_pipe);
         radio.openReadingPipe(1, host_to_catfeeder_pipe);
 
-	Serial.println("Init RF24 Done");
+	//Serial.println("Init RF24 Done");
 }
 
 void setup()
 {
 
-	Serial.begin(UART_SPEED);
-	Serial.print("Cat feeder started\n");
+	//Serial.begin(UART_SPEED);
+	//Serial.print("Cat feeder started\n");
 	pinMode(PIN_SENSOR, INPUT);
 	pinMode(PIN_KEYS, INPUT_PULLUP);
 
@@ -529,9 +529,9 @@ void feed(int part)
 	if (part == 0)	
 		return;
 	
-	Serial.print("Feeding ");
-	Serial.print(orig_part * grams_per_portion);
-	Serial.println(" grams");
+	//Serial.print("Feeding ");
+	//Serial.print(orig_part * grams_per_portion);
+	//Serial.println(" grams");
 	lcd_reset();
 	lcd.print("<Feeding>");
 
@@ -982,6 +982,7 @@ void time_set(byte hour, byte min)
 	t.hr = hour;
 
 	rtc.time(t);
+	disp_running(t);
 }
 
 /**
@@ -996,30 +997,30 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			feed(req->cmd.qty);
 		break;
 		case CF_SET_TIME:
-			Serial.println("Setting time");
+			//Serial.println("Setting time");
 			time_set(req->cmd.time.hour, req->cmd.time.min);
 		break;
 		case CF_CAL_VALUE_GET:
-			Serial.println("Getting calibration value");
+			//Serial.println("Getting calibration value");
 			resp.type = CF_CAL_VALUE_GET;
 			resp.cmd.cal_value = grams_per_portion;
 			radio_send(&resp);
 		break;
 		case CF_STAT_GET:
-			Serial.println("Getting statistics");
+			//Serial.println("Getting statistics");
 			resp.type = CF_STAT_GET;
 			resp.cmd.stat_total = total_feeding_grams;
 			radio_send(&resp);
 		break;
 		case CF_SLOT_GET_COUNT:
-			Serial.println("Getting slot count");
+			//Serial.println("Getting slot count");
 			resp.type = CF_SLOT_GET_COUNT;
 			resp.cmd.slot_count = FEEDING_SLOT_COUNT;
 			radio_send(&resp);
 		break;
 		case CF_SLOT_GET:
-			Serial.print("Getting slot ");
-			Serial.println(req->cmd.slotidx);
+			//Serial.print("Getting slot ");
+			//Serial.println(req->cmd.slotidx);
 			resp.type = CF_SLOT_GET;
 			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
 				return;
@@ -1031,8 +1032,8 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			radio_send(&resp);
 		break;
 		case CF_SLOT_FEED:
-			Serial.print("Manual feeding slot ");
-			Serial.println(req->cmd.slotidx);
+			//Serial.print("Manual feeding slot ");
+			//Serial.println(req->cmd.slotidx);
 			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
 				return;
 
@@ -1043,15 +1044,15 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			feed(feeding_slots[req->cmd.slotidx].qty);
 		break;
 		case CF_SLOT_SET:
-			Serial.print("Setting slot ");
-			Serial.println(req->cmd.slot.idx);
+			//Serial.print("Setting slot ");
+			//Serial.println(req->cmd.slot.idx);
 			if (req->cmd.slot.idx >= FEEDING_SLOT_COUNT)
 				return;
 
-			feeding_slots[req->cmd.slot.idx].qty = resp.cmd.slot.qty; 
-			feeding_slots[req->cmd.slot.idx].hour = resp.cmd.slot.hour; 
-			feeding_slots[req->cmd.slot.idx].min = resp.cmd.slot.min; 
-			feeding_slots[req->cmd.slot.idx].enable = resp.cmd.slot.enable;
+			feeding_slots[req->cmd.slot.idx].qty = req->cmd.slot.qty; 
+			feeding_slots[req->cmd.slot.idx].hour = req->cmd.slot.hour; 
+			feeding_slots[req->cmd.slot.idx].min = req->cmd.slot.min; 
+			feeding_slots[req->cmd.slot.idx].enable = req->cmd.slot.enable;
 		break;
 		default:
 		break;
@@ -1067,8 +1068,8 @@ void radio_handle()
 
 	while (radio.available()) {
 		len = radio.getDynamicPayloadSize();
-		Serial.print("Received message over serial, len:");
-		Serial.println(len);
+		//Serial.print("Received message over radio, len:");
+		//Serial.println(len);
 
 		radio.read(buff, len);
 		/* Discard the message if unexpected length */
