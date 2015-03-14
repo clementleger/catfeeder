@@ -43,6 +43,10 @@
 #include <unistd.h>
 #include <sys/types.h>
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+
 #include <microhttpd.h>
 
 #include <catfeeder_com.h>
@@ -401,6 +405,14 @@ int
 main (int argc, char *const *argv)
 {
 	struct MHD_Daemon *d;
+	  struct sockaddr_in daemon_ip_addr;
+
+
+	memset (&daemon_ip_addr, 0, sizeof (struct sockaddr_in));
+	daemon_ip_addr.sin_family = AF_INET;
+	daemon_ip_addr.sin_port = htons(PORT);
+	daemon_ip_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	
   
 	if (open("/dev/mem", O_RDONLY) < 0) {
 		printf("root rights required\n");
@@ -412,6 +424,7 @@ main (int argc, char *const *argv)
                         PORT,
                         NULL, NULL, &ahc_echo, NULL,
 			MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int) 120,
+			MHD_OPTION_SOCK_ADDR, &daemon_ip_addr,
 			MHD_OPTION_END);
 	if (d == NULL)
 		return 1;
