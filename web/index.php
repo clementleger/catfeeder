@@ -45,7 +45,7 @@
     <div class="jumbotron">
       <div class="container">
 <?php
-        $cal_value = file_get_contents("http://clement-leger.fr:5454/getcal");
+        $cal_value = file_get_contents("http://127.0.0.1:5454/getcal");
         if ($cal_value == false) {
                 echo "error";
                 exit();
@@ -74,13 +74,13 @@
         <h2>Slots configuration</h2>
         <p>
 <?php
-        $slot_count = file_get_contents("http://clement-leger.fr:5454/getslotcount");
+        $slot_count = file_get_contents("http://127.0.0.1:5454/getslotcount");
         $slot_count = json_decode($slot_count);
         $slot_count = $slot_count->{"slot_count"};
         $slots = array();
         $total_qty = 0;
         for ($x = 0; $x < $slot_count; $x++) {
-                $slot = file_get_contents("http://clement-leger.fr:5454/getslot?id=" . $x);
+                $slot = file_get_contents("http://127.0.0.1:5454/getslot?id=" . $x);
                 $dec_slot = json_decode($slot);
                 array_push($slots, $dec_slot);
                 $total_qty += $dec_slot->{"qty"} * $cal_value;
@@ -130,7 +130,7 @@
         $("#settimebut").click(function(){
                 var hour = $("#settime").val().substr(0,2);
                 var minu = $("#settime").val().substr(3,2);
-                $.ajax({url: "http://clement-leger.fr:5454/settime",
+                $.ajax({url: "catfeed/settime",
                         data: "hour=" + hour + "&min=" + minu,
                         success: function(result){
                             }
@@ -138,7 +138,7 @@
         }); 
         $("#forcefeed").click(function(){
                 var qty = Math.floor($("#forcefeedqty").val()/<?php echo $cal_value?>);
-                $.ajax({url: "http://clement-leger.fr:5454/feed",
+                $.ajax({url: "catfeed/feed",
                         data: "qty=" + qty,
                         success: function(result){
                             }
@@ -147,7 +147,7 @@
 
         $(".feedslot").click(function(event){
                 var idx = $(this).attr("id").substr(8);
-                $.ajax({url: "http://clement-leger.fr:5454/slotfeed",
+                $.ajax({url: "catfeed/slotfeed",
                         data: "id=" + idx,
                         });
         });
@@ -158,7 +158,7 @@
                 var minu = $("#" + elem_idx + "time").val().substr(3,2);
                 var qty = Math.floor($("#" + elem_idx + "qty").val()/<?php echo $cal_value?>);
                 var enable = $("#" + elem_idx + "en").prop("checked") ? 1 : 0;
-                $.ajax({url: "http://clement-leger.fr:5454/setslot",
+                $.ajax({url: "catfeed/setslot",
                         data: "id=" + idx + "&qty=" + qty + "&hour=" + hour + "&min=" + minu + "&enable=" + enable,
                         
                         });
