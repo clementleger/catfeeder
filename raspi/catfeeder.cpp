@@ -76,9 +76,10 @@ rf24_init()
 static int
 rf24_send_data(cf_cmd_req_t *req)
 {
+	printf("Sending data\n");
 	radio.stopListening();
 	if (!radio.write(req, sizeof(*req))) {
-		printf("Write failed");
+		printf("Write failed\n");
 		return 1;
 	}
 	radio.startListening();
@@ -167,7 +168,7 @@ rf24_get_cal(char *resp_str)
 	if (rf24_send_recv(&req, &resp))
 		return 1;
 
-	sprintf(resp_str, "{ \"cal_calue\": \"%.02f\" }", resp.cmd.cal_value);
+	sprintf(resp_str, "{ \"cal_value\": \"%.02f\" }", resp.cmd.cal_value);
 
 	return 0;
 }
@@ -232,7 +233,7 @@ rf24_set_slot(uint8_t idx, uint8_t hour, uint8_t min, uint8_t qty, uint8_t enabl
 {	
 	cf_cmd_req_t req;
 
-	req.type = CF_SLOT_GET;
+	req.type = CF_SLOT_SET;
 	req.cmd.slot.idx = idx;
 	req.cmd.slot.hour = hour;
 	req.cmd.slot.min = min;
