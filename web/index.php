@@ -55,23 +55,38 @@
         $cal_value = $cal_value->{"cal_value"};
 ?>
         <h2>Misc</h2>
-              <form class="slot" role="form">
+
+        <form class="slot form-horizontal" role="form">
                 <p>Set Time</p>
-            <div class="form-group">
-              <label for="male">Time</label>
-              <input type="text" id="settime" pattern="[0-9]{2}:[0-9]{2}" class="form-control" value="00:00" >
-            </div>
-            <button id="settimebut" type="button" class="btn btn-success">Set</button>
-          </form>
-              <form class="slot" role="form">
+                <div class="form-group">
+                        <label for="settime" class="col-sm-4 control-label" >Time</label>
+                        <div class="col-sm-6">
+                                <input type="text" id="settime" pattern="[0-9]{2}:[0-9]{2}" class="time_input form-control" value="00:00" >
+                        </div>
+                </div>
+                <div class="form-group">
+                        <div class="col-sm-offset-1 col-sm-10">
+                                <button id="settimebut" type="button" class="btn btn-success">Set</button>
+                        </div>
+                </div>
+        </form>
+
+        <form class="slot form-horizontal" role="form">
                 <p>Force feed</p>
-            <div class="form-group">
-              <label for="male">Grams</label>
-              <input type="number" id="forcefeedqty" min="0" step="<?php echo $cal_value ?>"  class="form-control" value="<?php echo $cal_value ?>" >
-            </div>
-            <button type="button" id="forcefeed" class="btn btn-success">Feed !</button>
-          </form>
-        <h2>Slots configuration</h2>
+                <div class="form-group">
+                        <label for="forcefeedqty" class="col-sm-4 control-label" >Grams</label>
+                                <div class="col-sm-6">
+                                        <input type="number" id="forcefeedqty" min="0" step="<?php echo $cal_value ?>"  class="time_input form-control" value="<?php echo $cal_value ?>" >
+                                </div>
+                        </div>
+                <div class="form-group">
+                        <div class="col-sm-offset-1 col-sm-10">
+                                <button type="button" id="forcefeed" class="btn btn-success">Feed !</button>
+                        </div>
+                </div>
+        </form>
+        
+         <h2>Slots configuration</h2>
         <p>
 <?php
         $slot_count = file_get_contents("http://127.0.0.1:5454/getslotcount");
@@ -88,31 +103,41 @@
         }
 
         ?>
-        <p>Total quantity per day: <span id="totalqty"><?= $total_qty ?></span> grams</p>;
+        <p>Total quantity per day: <span id="totalqty"><?= $total_qty ?></span> grams</p>
         <?php
         for ($x = 0; $x < $slot_count; $x++) {
                 $slot_qty = $slots[$x]->{"qty"} * $cal_value;
                 $slot_time = sprintf("%02d:%02d",$slots[$x]->{"hour"}, $slots[$x]->{"min"});
                 $slot_en = $slots[$x]->{"enable"};
                 ?>
-                        <form class="slot" role="form">
-                                <p>Slot <?= $x + 1?></p>
-                            <div class="form-group">
-                              <label >Time</label>
+                
+                        <form class="slot form-horizontal" role="form">
+                <div class="form-group">
+                        <label for="settime" class="col-sm-4 control-label" >Time</label>
+                        <div class="col-sm-6">
                               <input type="text" id="setslot<?= $x ?>time" class="form-control" pattern="[0-9]{2}:[0-9]{2}" value="<?php echo $slot_time ?>">
-                            </div>
-                            <div class="form-group">
-                              <label >Quantity</label>
+                        </div>
+                </div>
+                <div class="form-group">
+                        <label for="settime" class="col-sm-4 control-label" >Quantity</label>
+                        <div class="col-sm-6">
                               <input type="number" id="setslot<?= $x ?>qty" onchange="update_totalqty()" min="0" step="<?php echo $cal_value ?>" class="slotqty form-control" value="<?php echo $slot_qty ?>" >
-                            </div>
-                            <div class="form-group">
-                              <label >Enable</label>
+                        </div>
+                </div>
+                <div class="form-group">
+                        <label for="settime" class="col-sm-4 control-label" >Enable</label>
+                        <div class="col-sm-6">
                                 <input type="checkbox" id="setslot<?= $x ?>en" checked="<?php echo $slot_en ?>" >
-                                </div>
-                            <button id="setslot<?= $x ?>" type="button" class="setslot btn btn-success">Save</button>
-                            <button id="feedslot<?= $x ?>" type="button" class="feedslot btn btn-success">Feed Now</button>
-                          </form>
-                <?php
+                        </div>
+                </div>
+                <div class="form-group">
+                        <div class="col-sm-offset-1 col-sm-10">
+                                <button id="setslot<?= $x ?>" type="button" class="setslot btn btn-success">Save</button>
+                                <button id="feedslot<?= $x ?>" type="button" class="feedslot btn btn-success">Feed Now</button>
+                        </div>
+                </div>
+        </form>
+        <?php
         } 
 
 ?>
