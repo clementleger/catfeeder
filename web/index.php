@@ -147,50 +147,71 @@
 
     </div> <!-- /container -->        <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
         <script>window.jQuery || document.write('<script src="js/vendor/jquery-1.11.2.min.js"><\/script>')</script>
-
+        
+        <script type="text/javascript" src="js/noty/packaged/jquery.noty.packaged.min.js"></script>
+        
         <script src="js/vendor/bootstrap.min.js"></script>
 
         <script src="js/main.js"></script>
         
         <script>
+        $( document ).ready(function() {
+                $("#settimebut").click(function(){
+                        var hour = $("#settime").val().substr(0,2);
+                        var minu = $("#settime").val().substr(3,2);
+                        $.ajax({url: "catfeed/settime",
+                                data: "hour=" + hour + "&min=" + minu,
+                                success: function(result){
+                                        var n = noty({text: 'Set time succeed', type: 'success', timeout: 4000});
+                                    },
+                                error: function(result){
+                                        var n = noty({text: 'Set time failed', type: 'error', timeout: 4000});
+                                    },
+                            });
+                }); 
+                $("#forcefeed").click(function(){
+                        var qty = Math.floor($("#forcefeedqty").val()/<?php echo $cal_value?>);
+                        $.ajax({url: "catfeed/feed",
+                                data: "qty=" + qty,
+                                success: function(result){
+                                        var n = noty({text: 'Force feed succeed', type: 'success', timeout: 4000});
+                                    },
+                                error: function(result){
+                                        var n = noty({text: 'Force feed failed', type: 'error', timeout: 4000});
+                                    },
+                            });
+                });
 
-        $("#settimebut").click(function(){
-                var hour = $("#settime").val().substr(0,2);
-                var minu = $("#settime").val().substr(3,2);
-                $.ajax({url: "catfeed/settime",
-                        data: "hour=" + hour + "&min=" + minu,
-                        success: function(result){
-                            }
-                    });
-        }); 
-        $("#forcefeed").click(function(){
-                var qty = Math.floor($("#forcefeedqty").val()/<?php echo $cal_value?>);
-                $.ajax({url: "catfeed/feed",
-                        data: "qty=" + qty,
-                        success: function(result){
-                            }
-                    });
+                $(".feedslot").click(function(event){
+                        var idx = $(this).attr("id").substr(8);
+                        $.ajax({url: "catfeed/slotfeed",
+                                data: "id=" + idx,
+                                success: function(result){
+                                        var n = noty({text: 'Feeding slot ' + idx + ' succeed', type: 'success', timeout: 4000});
+                                    },
+                                error: function(result){
+                                        var n = noty({text: 'Feeding slot ' + idx + ' failed', type: 'error', timeout: 4000});
+                                    },
+                                });
+                });
+                $(".setslot").click(function(event){
+                        var idx = $(this).attr("id").substr(7);
+                        var elem_idx = $(this).attr("id");
+                        var hour = $("#" + elem_idx + "time").val().substr(0,2);
+                        var minu = $("#" + elem_idx + "time").val().substr(3,2);
+                        var qty = Math.floor($("#" + elem_idx + "qty").val()/<?php echo $cal_value?>);
+                        var enable = $("#" + elem_idx + "en").prop("checked") ? 1 : 0;
+                        $.ajax({url: "catfeed/setslot",
+                                data: "id=" + idx + "&qty=" + qty + "&hour=" + hour + "&min=" + minu + "&enable=" + enable,
+                                success: function(result){
+                                        var n = noty({text: 'Setting slot ' + idx + ' succeed', type: 'success', timeout: 4000});
+                                    },
+                                error: function(result){
+                                        var n = noty({text: 'Setting slot ' + idx + ' failed', type: 'error', timeout: 4000});
+                                    },
+                                });
+                });
         });
-
-        $(".feedslot").click(function(event){
-                var idx = $(this).attr("id").substr(8);
-                $.ajax({url: "catfeed/slotfeed",
-                        data: "id=" + idx,
-                        });
-        });
-        $(".setslot").click(function(event){
-                var idx = $(this).attr("id").substr(7);
-                var elem_idx = $(this).attr("id");
-                var hour = $("#" + elem_idx + "time").val().substr(0,2);
-                var minu = $("#" + elem_idx + "time").val().substr(3,2);
-                var qty = Math.floor($("#" + elem_idx + "qty").val()/<?php echo $cal_value?>);
-                var enable = $("#" + elem_idx + "en").prop("checked") ? 1 : 0;
-                $.ajax({url: "catfeed/setslot",
-                        data: "id=" + idx + "&qty=" + qty + "&hour=" + hour + "&min=" + minu + "&enable=" + enable,
-                        
-                        });
-        });
-        
         function update_totalqty() {
                 var qty_sum = 0;
                 $('.slotqty').each(function(i, obj) {
