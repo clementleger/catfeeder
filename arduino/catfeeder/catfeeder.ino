@@ -1053,6 +1053,7 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 			feeding_slots[req->cmd.slot.idx].hour = req->cmd.slot.hour; 
 			feeding_slots[req->cmd.slot.idx].min = req->cmd.slot.min; 
 			feeding_slots[req->cmd.slot.idx].enable = req->cmd.slot.enable;
+			eeprom_write_slot(req->cmd.slot.idx);
 		break;
 		default:
 		break;
