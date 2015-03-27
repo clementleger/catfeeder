@@ -11,7 +11,7 @@ static const uint64_t host_to_catfeeder_pipe = 0xF0F0F0F0D2LL;
 
 enum cf_command_type {
 	CD_ERROR = 0,
-	CF_MISC_FORCE_FEED,
+	CF_MISC_MANUAL_FEED,
 	CF_CAL_VALUE_GET,
 	CF_STAT_GET,
 	CF_SLOT_GET_COUNT,

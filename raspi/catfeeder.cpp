@@ -135,14 +135,14 @@ rf24_slot_feed(uint8_t slotidx)
 }
 
 static int
-rf24_send_force_feed(uint8_t qty)
+rf24_send_manual_feed(uint8_t qty)
 {	
 	cf_cmd_req_t req;
 
-	req.type = CF_MISC_FORCE_FEED;
+	req.type = CF_MISC_MANUAL_FEED;
 	req.cmd.qty = qty;
 	
-	printf("Radio: sending force feeding\n");
+	printf("Radio: sending manual feeding\n");
 
 	return rf24_send_data(&req);
 }
@@ -282,8 +282,8 @@ handle_client_command(const char *url, struct MHD_Connection *connection)
 			goto out;
 		}
 
-		printf("Receive force feed %d\n", qty);
-		if (rf24_send_force_feed(qty))
+		printf("Receive manual feed %d\n", qty);
+		if (rf24_send_manual_feed(qty))
 			goto out;
 
 	} else if (strncmp(url, "slotfeed", 8) == 0) {

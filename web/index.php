@@ -53,8 +53,19 @@
         
         $cal_value= json_decode($cal_value);
         $cal_value = $cal_value->{"cal_value"};
+        
+        $stat_value = file_get_contents("http://127.0.0.1:5454/getstat");
+        if ($stat_value == false) {
+                echo "error";
+                exit();
+        }
+        
+        $stat_value= json_decode($stat_value);
+        $total_feed = $stat_value->{"total_feed"};
 ?>
         <h2>Misc</h2>
+
+        <p>Total quantity delivered: <span id="totalqty"><?= $total_feed ?></span> grams</p>
 
         <form class="slot form-horizontal" role="form">
                 <p>Set Time</p>
@@ -72,16 +83,16 @@
         </form>
 
         <form class="slot form-horizontal" role="form">
-                <p>Force feed</p>
+                <p>Manual feed</p>
                 <div class="form-group">
-                        <label for="forcefeedqty" class="col-sm-4 control-label" >Grams</label>
+                        <label for="manualfeedqty" class="col-sm-4 control-label" >Grams</label>
                                 <div class="col-sm-6">
-                                        <input type="number" id="forcefeedqty" min="0" step="<?php echo $cal_value ?>"  class="time_input form-control" value="<?php echo $cal_value ?>" >
+                                        <input type="number" id="manualfeedqty" min="0" step="<?php echo $cal_value ?>"  class="time_input form-control" value="<?php echo $cal_value ?>" >
                                 </div>
                         </div>
                 <div class="form-group">
                         <div class="col-sm-offset-1 col-sm-10">
-                                <button type="button" id="forcefeed" class="btn btn-success">Feed !</button>
+                                <button type="button" id="manualfeed" class="btn btn-success">Feed !</button>
                         </div>
                 </div>
         </form>
@@ -169,8 +180,8 @@
                                     },
                             });
                 }); 
-                $("#forcefeed").click(function(){
-                        var qty = Math.floor($("#forcefeedqty").val()/<?php echo $cal_value?>);
+                $("#manualfeed").click(function(){
+                        var qty = Math.floor($("#manualfeedqty").val()/<?php echo $cal_value?>);
                         $.ajax({url: "catfeed/feed",
                                 data: "qty=" + qty,
                                 success: function(result){

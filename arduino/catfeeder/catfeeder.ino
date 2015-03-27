@@ -154,8 +154,8 @@ static float grams_per_portion = GRAMS_PER_PORTION;
 /**
  * Action and display prototypes
  */
-void force_feed_display(void *data) ;
-void force_feed_action(void *data, int button);
+void manual_feed_display(void *data) ;
+void manual_feed_action(void *data, int button);
 
 void stat_display(void *data) ;
 void stat_action(void *data, int button);
@@ -334,9 +334,9 @@ struct menu_entry main_entries[] = {
 		&configure_menu,
 	},
 	{
-		"Force feed",
-		force_feed_action,
-		force_feed_display,
+		"Manual feed",
+		manual_feed_action,
+		manual_feed_display,
 		NULL,
 	},
 	{
@@ -637,22 +637,22 @@ void calibrate_action(void *data, int button)
 		eeprom_write_gram_per_portion();
 }
 
-static byte force_feed_parts = 0;
+static byte manual_feed_parts = 0;
 
-void force_feed_display(void *data) 
+void manual_feed_display(void *data) 
 {
-	quantity_display(&force_feed_parts);
+	quantity_display(&manual_feed_parts);
 }
 
-void force_feed_action(void *data, int button)
+void manual_feed_action(void *data, int button)
 {
 	if (button == KEY_ENTER) {
-		feed(force_feed_parts);
-		force_feed_parts = 0;
+		feed(manual_feed_parts);
+		manual_feed_parts = 0;
 	} else if (button == KEY_CANCEL) {
-		force_feed_parts = 0;
+		manual_feed_parts = 0;
 	} else {
-		quantity_action(button, &force_feed_parts);
+		quantity_action(button, &manual_feed_parts);
 	}
 }
 
@@ -993,7 +993,7 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 	cf_cmd_resp_t resp;
 
 	switch (req->type) {
-		case CF_MISC_FORCE_FEED:
+		case CF_MISC_MANUAL_FEED:
 			feed(req->cmd.qty);
 		break;
 		case CF_SET_TIME:
