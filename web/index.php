@@ -65,7 +65,7 @@
 ?>
         <h2>Misc</h2>
 
-        <p>Total quantity delivered: <span id="totalqty"><?= $total_feed ?></span> grams</p>
+        <p>Total quantity delivered: <?= $total_feed ?> grams</p>
 
         <form class="slot form-horizontal" role="form">
                 <p>Set Time</p>
