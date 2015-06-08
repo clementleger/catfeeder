@@ -253,15 +253,15 @@ struct menu_entry slot_entries_ ##__slot[] = 	\
 		NULL,	\
 	},	\
 	{	\
-		"Skip today",	\
-		skip_action,	\
-		skip_display,	\
-		NULL,	\
-	},	\
-	{	\
 		"Feed now",	\
 		feed_now_action,	\
 		feed_now_display,	\
+		NULL,	\
+	},	\
+	{	\
+		"Skip today",	\
+		skip_action,	\
+		skip_display,	\
 		NULL,	\
 	},	\
 	{	\
@@ -322,6 +322,12 @@ struct menu configure_menu = {
  */
 struct menu_entry main_entries[] = {
 	{
+		"Manual feed",
+		manual_feed_action,
+		manual_feed_display,
+		NULL,
+	},
+	{
 		"Statistics",
 		stat_action,
 		stat_display,
@@ -332,12 +338,6 @@ struct menu_entry main_entries[] = {
 		NULL,
 		NULL,
 		&configure_menu,
-	},
-	{
-		"Manual feed",
-		manual_feed_action,
-		manual_feed_display,
-		NULL,
 	},
 	{
 		"Calibrate",
@@ -500,10 +500,13 @@ int wait_sensor_state(int state)
 	do {
 		if (digitalRead(PIN_SENSOR) == state)
 			break;
-		if (button_pressed())
+		if (button_pressed()) {
+			lcd.setCursor(0, 1);
+			lcd.print("Feed cancelled");
 			ret = 1;
+		}
 	} while(1);
-	
+
 	return ret;
 }
 
@@ -991,14 +994,22 @@ void time_set(byte hour, byte min)
 void handle_radio_cmd(struct cf_cmd_req *req)
 {
 	cf_cmd_resp_t resp;
+        Time t;
 
 	switch (req->type) {
 		case CF_MISC_MANUAL_FEED:
 			feed(req->cmd.qty);
 		break;
-		case CF_SET_TIME:
+		case CF_TIME_SET:
 			//Serial.println("Setting time");
 			time_set(req->cmd.time.hour, req->cmd.time.min);
+		break;
+		case CF_TIME_GET:
+			t = rtc.time();
+			resp.type = CF_TIME_GET;
+			resp.cmd.time.hour = t.hr;
+			resp.cmd.time.min = t.min;
+			radio_send(&resp);
 		break;
 		case CF_CAL_VALUE_GET:
 			//Serial.println("Getting calibration value");

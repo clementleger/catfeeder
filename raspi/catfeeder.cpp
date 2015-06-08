@@ -152,7 +152,7 @@ rf24_set_time(uint8_t hour, uint8_t min)
 {	
 	cf_cmd_req_t req;
 
-	req.type = CF_SET_TIME;
+	req.type = CF_TIME_SET;
 	req.cmd.time.hour = hour;
 	req.cmd.time.min = min;
 	
@@ -205,6 +205,22 @@ rf24_get_slot_count(char *resp_str)
 		return 1;
 
 	sprintf(resp_str, "{ \"slot_count\": \"%d\" }", resp.cmd.slot_count);
+
+	return 0;
+}
+
+static int
+rf24_get_time(char *resp_str)
+{	
+	cf_cmd_req_t req;
+	cf_cmd_resp_t resp;
+
+	req.type = CF_TIME_GET;
+
+	if (rf24_send_recv(&req, &resp))
+		return 1;
+
+	sprintf(resp_str, "{ \"hour\": \"%d\", \"min\": \"%d\" }", resp.cmd.time.hour, resp.cmd.time.min);
 
 	return 0;
 }
@@ -339,6 +355,10 @@ handle_client_command(const char *url, struct MHD_Connection *connection)
 		if (rf24_get_slot(id, resp_buffer))
 			goto out;
 
+	} else if (strncmp(url, "gettime", 7) == 0) {
+		if (rf24_get_time(resp_buffer))
+			goto out;
+
 	} else if (strncmp(url, "getcal", 6) == 0) {
 		if (rf24_get_cal(resp_buffer))
 			goto out;
@@ -429,7 +449,7 @@ main (int argc, char *const *argv)
 	if (d == NULL)
 		return 1;
 
-	while(1);
+	getchar();
 
 	return 0;
 }

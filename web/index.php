@@ -52,7 +52,17 @@
         }
         
         $cal_value= json_decode($cal_value);
-        $cal_value = $cal_value->{"cal_value"};
+        $cal_value = $cal_value->{"cal_value"};       
+
+	$time = file_get_contents("http://127.0.0.1:5454/gettime");
+        if ($time == false) {
+                echo "error";
+                exit();
+        }
+        
+        $time= json_decode($time);
+        $hour = $time->{"hour"};
+        $min = $time->{"min"};
         
         $stat_value = file_get_contents("http://127.0.0.1:5454/getstat");
         if ($stat_value == false) {
@@ -72,7 +82,7 @@
                 <div class="form-group">
                         <label for="settime" class="col-sm-4 control-label" >Time</label>
                         <div class="col-sm-6">
-                                <input type="text" id="settime" pattern="[0-9]{2}:[0-9]{2}" class="time_input form-control" value="00:00" >
+                                <input type="text" id="settime" pattern="[0-9]{2}:[0-9]{2}" class="time_input form-control" value="<?= $hour ?>:<?= $min ?>" >
                         </div>
                 </div>
                 <div class="form-group">
