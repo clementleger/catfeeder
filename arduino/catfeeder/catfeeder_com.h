@@ -49,7 +49,6 @@ typedef struct cf_cmd_resp {
 	uint8_t type;
 	union {
 		float cal_value;
-		float stat_total;
 		uint8_t slot_count;
 		struct {
 			uint8_t hour;
@@ -61,6 +60,10 @@ typedef struct cf_cmd_resp {
 			uint8_t hour;
 			uint8_t min;
 		} time;
+		struct {
+			float total_feed;
+			uint8_t blocked;
+		} stats;	
 	} cmd;
 } __packed__ cf_cmd_resp_t;
 

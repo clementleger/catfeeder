@@ -40,6 +40,8 @@
 #define SERVO_FIX_VALUE		109
 #define SERVO_MOVE_VALUE	1
 
+#define MAX_FEEDING_TIME_MILLI	15000
+
 /**
  * Radio
  */
@@ -150,6 +152,8 @@ RF24 radio(PIN_RF24_CE, PIN_RF24_CSN);
 
 static float total_feeding_grams = 0;
 static float grams_per_portion = GRAMS_PER_PORTION;
+
+static bool feeder_is_blocked = false;
 
 /**
  * Action and display prototypes
@@ -496,10 +500,18 @@ void lcd_reset()
 int wait_sensor_state(int state)
 {
 	int ret = 0;
+	unsigned long start_time = millis();
 
 	do {
 		if (digitalRead(PIN_SENSOR) == state)
 			break;
+
+		if ((millis() - start_time) > MAX_FEEDING_TIME_MILLI) {
+			feeder_is_blocked = true;
+			ret = 1;
+			break;
+		}
+
 		if (button_pressed()) {
 			lcd.setCursor(0, 1);
 			lcd.print("Feed cancelled");
@@ -531,11 +543,15 @@ void feed(int part)
 
 	if (part == 0)	
 		return;
-	
-	//Serial.print("Feeding ");
-	//Serial.print(orig_part * grams_per_portion);
-	//Serial.println(" grams");
+		
 	lcd_reset();
+
+	if (feeder_is_blocked) {
+		lcd.print("<Blocked !>");
+		delay(1000);
+		return;
+	}
+
 	lcd.print("<Feeding>");
 
 	lcd.setCursor(0, 1);
@@ -694,7 +710,8 @@ void slot_quant_action(void *data, int button)
 enum stat {
 	STAT_TOTAL_QTY = 0,
 	STAT_GRAMS_PER_DAY = 1,
-	STAT_COUNT = 2,
+	STAT_BLOCKED = 2,
+	STAT_COUNT = 3,
 };
 
 static byte cur_stat = 0;
@@ -702,20 +719,29 @@ static byte cur_stat = 0;
 void stat_display(void *data) 
 {
 	float tmp = 0;
+	if (cur_stat == 0)
+		lcd.write(CHAR_UP);
+	else if (cur_stat == (STAT_COUNT - 1))
+		lcd.write(CHAR_DOWN);
+	else
+		lcd.write(CHAR_UPDOWN);
+		
 	switch (cur_stat) {
 		case STAT_TOTAL_QTY:
-			lcd.write(CHAR_DOWN);
 			lcd.print("Total: ");
 			lcd.print(total_feeding_grams, 1);
 			lcd.print(" g");
 			break;
 		case STAT_GRAMS_PER_DAY:
-			lcd.write(CHAR_UP);
 			lcd.print("Per day: ");
 			for(int i = 0; i < FEEDING_SLOT_COUNT; i++)
 				tmp += (feeding_slots[i].qty * grams_per_portion);
 			lcd.print(tmp, 1);
 			lcd.print(" g");
+			break;
+		case STAT_BLOCKED:
+			lcd.print("Blocked: ");
+			lcd.print(feeder_is_blocked ? "Yes" : "No");
 			break;
 		default:
 			break;
@@ -724,10 +750,17 @@ void stat_display(void *data)
 
 void stat_action(void *data, int button)
 {
-	if (button == KEY_UP)
-		cur_stat = STAT_TOTAL_QTY;
-	else if (button == KEY_DOWN)
-		cur_stat = STAT_GRAMS_PER_DAY;
+	if (button == KEY_UP) {
+		if (cur_stat != (STAT_COUNT - 1))
+			cur_stat++;
+	} else if (button == KEY_DOWN) {
+		if (cur_stat != 0)
+			cur_stat--;
+	} else if (button == KEY_ENTER) {
+		if (cur_stat == STAT_BLOCKED)
+			feeder_is_blocked = false;
+	}
+		
 }
 
 void bool_display(byte value)
@@ -965,8 +998,13 @@ void check_feeding(Time t)
 void disp_running(Time t)
 {
         lcd_reset();
-	lcd.setCursor(3, 0);
-        lcd.print("<Running>");
+	if (feeder_is_blocked) {
+		lcd.setCursor(1, 0);
+		lcd.print("<! Blocked !>");
+	} else {
+		lcd.setCursor(3, 0);
+		lcd.print("<Running>");
+	}
 	lcd.setCursor(5, 1);
 	print_time(t);
 }
@@ -1020,7 +1058,8 @@ void handle_radio_cmd(struct cf_cmd_req *req)
 		case CF_STAT_GET:
 			//Serial.println("Getting statistics");
 			resp.type = CF_STAT_GET;
-			resp.cmd.stat_total = total_feeding_grams;
+			resp.cmd.stats.total_feed = total_feeding_grams;
+			resp.cmd.stats.blocked = feeder_is_blocked;
 			radio_send(&resp);
 		break;
 		case CF_SLOT_GET_COUNT:

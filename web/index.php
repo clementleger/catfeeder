@@ -72,12 +72,29 @@
         
         $stat_value= json_decode($stat_value);
         $total_feed = $stat_value->{"total_feed"};
+        $blocked = $stat_value->{"blocked"};
+        
+        if ($blocked != 0) {
+                $blocked_str = "Yes";
+                $blocked_class = "warning";
+        } else {
+                $blocked_str = "No";
+                $blocked_class = "info";     
+        }
+
 ?>
+        <h2>Informations</h2>
+
+        <form class="info box_display form-horizontal" role="form">
+                <p>Total quantity <?= $total_feed ?> grams </p>
+        </form>
+        <form class="<?= $blocked_class ?> box_display form-horizontal" role="form">
+                <p>Blocked: <?= $blocked_str ?> </p>
+        </form>
+        
         <h2>Misc</h2>
 
-        <p>Total quantity delivered: <?= $total_feed ?> grams</p>
-
-        <form class="slot form-horizontal" role="form">
+        <form class="misc box_display form-horizontal" role="form">
                 <p>Set Time</p>
                 <div class="form-group">
                         <label for="settime" class="col-sm-4 control-label" >Time</label>
@@ -92,7 +109,7 @@
                 </div>
         </form>
 
-        <form class="slot form-horizontal" role="form">
+        <form class="misc box_display form-horizontal" role="form">
                 <p>Manual feed</p>
                 <div class="form-group">
                         <label for="manualfeedqty" class="col-sm-4 control-label" >Grams</label>
@@ -132,7 +149,7 @@
                 $slot_en = $slots[$x]->{"enable"};
                 ?>
                 
-                        <form class="slot form-horizontal" role="form">
+                        <form class="slot box_display form-horizontal" role="form">
                 <div class="form-group">
                         <label for="settime" class="col-sm-4 control-label" >Time</label>
                         <div class="col-sm-6">
@@ -195,10 +212,10 @@
                         $.ajax({url: "catfeed/feed",
                                 data: "qty=" + qty,
                                 success: function(result){
-                                        var n = noty({text: 'Force feed succeed', type: 'success', timeout: 4000});
+                                        var n = noty({text: 'Manual feed succeed', type: 'success', timeout: 4000});
                                     },
                                 error: function(result){
-                                        var n = noty({text: 'Force feed failed', type: 'error', timeout: 4000});
+                                        var n = noty({text: 'Manual feed failed', type: 'error', timeout: 4000});
                                     },
                             });
                 });

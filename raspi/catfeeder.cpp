@@ -188,7 +188,9 @@ rf24_get_stat(char *resp_str)
 	if (rf24_send_recv(&req, &resp))
 		return 1;
 
-	sprintf(resp_str, "{ \"total_feed\": \"%.02f\" }", resp.cmd.stat_total);
+	sprintf(resp_str, "{ \"total_feed\": \"%.02f\",  \"blocked\": \"%d\" }"
+		,resp.cmd.stats.total_feed
+		,resp.cmd.stats.blocked);
 
 	return 0;
 }
