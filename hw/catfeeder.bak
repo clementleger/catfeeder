@@ -677,9 +677,9 @@ Wire Wire Line
 	6650 2450 6500 2450
 Wire Wire Line
 	6650 2550 6500 2550
-Text Label 6650 2750 0    60   ~ 0
-TRIG
 Text Label 6650 2850 0    60   ~ 0
+TRIG
+Text Label 6650 2750 0    60   ~ 0
 ECHO
 Wire Wire Line
 	6650 2750 6500 2750
