@@ -4,7 +4,6 @@
 #include <EEPROM.h>
 #include <avr/eeprom.h>
 #include <SPI.h>
-#include "RF24.h"
 
 #include "catfeeder_com.h"
 
@@ -30,9 +29,6 @@
 #define PIN_LCD_D7		2
 
 
-#define PIN_RF24_CE		9
-#define PIN_RF24_CSN		10
-
 /**
  * Servo
  */
@@ -41,11 +37,6 @@
 #define SERVO_MOVE_VALUE	1
 
 #define MAX_FEEDING_TIME_MILLI	15000
-
-/**
- * Radio
- */
-#define RADIO_MAX_PAYLOAD	40
 
 /** 
  * Button ADC values
@@ -148,12 +139,13 @@ byte down[8] = {
 Servo feeder;
 LiquidCrystal lcd(PIN_LCD_RS, PIN_LCD_ENABLE, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7);
 DS1302 rtc(PIN_CLOCK_CE, PIN_CLOCK_IO, PIN_CLOCK_SCLK);
-RF24 radio(PIN_RF24_CE, PIN_RF24_CSN);
 
 static float total_feeding_grams = 0;
 static float grams_per_portion = GRAMS_PER_PORTION;
 
 static bool feeder_is_blocked = false;
+
+static byte cur_hour = 0, cur_minutes = 0;
 
 /**
  * Action and display prototypes
@@ -175,6 +167,9 @@ void slot_quant_action(void *data, int button);
 
 void time_display(void *data) ;
 void time_action(void *data, int button);
+
+void clock_display(void *data) ;
+void clock_action(void *data, int button);
 
 void calibrate_display(void *data) ;
 void calibrate_action(void *data, int button);
@@ -331,12 +326,18 @@ struct menu_entry main_entries[] = {
 		manual_feed_display,
 		NULL,
 	},
-	{
-		"Statistics",
-		stat_action,
-		stat_display,
-		NULL,
-	},
+  {
+    "Statistics",
+    stat_action,
+    stat_display,
+    NULL,
+  },
+  {
+    "Clock",
+    clock_action,
+    clock_display,
+    NULL,
+  },
 	{
 		"Slots",
 		NULL,
@@ -448,30 +449,11 @@ void eeprom_init()
 	//Serial.println("Init EEPROM Done");
 }
 
-void rf24_init()
-{
-	//Serial.println("Init RF24");
-	radio.begin();
-        radio.enableDynamicPayloads();
-        radio.setAutoAck(1);
-        radio.setRetries(15,15);
-        radio.setDataRate(CATFEEDER_RF24_SPEED);
-        radio.setPALevel(RF24_PA_MAX);
-        radio.setChannel(70);
-        radio.setCRCLength(RF24_CRC_8);
-	radio.startListening();
-
-        radio.openWritingPipe(catfeeder_to_host_pipe);
-        radio.openReadingPipe(1, host_to_catfeeder_pipe);
-
-	//Serial.println("Init RF24 Done");
-}
-
 void setup()
 {
 
-	//Serial.begin(UART_SPEED);
-	//Serial.print("Cat feeder started\n");
+	Serial.begin(UART_SPEED);
+	Serial.print("Cat feeder started\n");
 	pinMode(PIN_SENSOR, INPUT);
 	pinMode(PIN_KEYS, INPUT_PULLUP);
 
@@ -482,13 +464,14 @@ void setup()
         lcd.createChar(CHAR_UPDOWN, updown);
         lcd.createChar(CHAR_DOWN, down);
 
-	rtc.write_protect(false);
+	rtc.writeProtect(false);
 	rtc.halt(false);
 
-	rf24_init();
 	eeprom_init();
-
-	disp_running(rtc.time());
+	Time t = rtc.time();
+	cur_hour = t.hr;
+	cur_minutes = t.min;
+	disp_running(t);
 }
 
 void lcd_reset()
@@ -763,6 +746,55 @@ void stat_action(void *data, int button)
 		
 }
 
+void clock_display(void *data)
+{
+  lcd.print("Set: ");
+
+  if (cur_hour < 10)
+    lcd.print("0");
+  lcd.print(cur_hour);
+  lcd.print(":");
+
+  if (cur_minutes < 10)
+    lcd.print("0");
+  lcd.print(cur_minutes);
+}
+
+bool inc_byte(byte *b, byte max_val) {
+  *b = *b + 1;
+  if (*b > max_val) {
+    *b = 0;
+    return true;
+ }
+ return false;
+}
+
+bool dec_byte(byte *b, byte max_val) {
+  if (*b == 0) {
+    *b = max_val;
+    return true;
+  } else {
+    *b = *b - 1;
+    return false;
+  }
+}
+
+void clock_action(void *data, int button)
+{
+  bool ret;
+  if (button == KEY_UP) {
+      ret = inc_byte(&cur_minutes, 59);
+      if (ret)
+        inc_byte(&cur_hour, 23);
+  } else if (button == KEY_DOWN) {   
+      ret = dec_byte(&cur_minutes, 59);
+      if (ret)
+        dec_byte(&cur_hour, 23);
+  } else if (button == KEY_ENTER) {
+      time_set(cur_hour, cur_minutes);
+  }
+}
+
 void bool_display(byte value)
 {
 
@@ -867,7 +899,6 @@ void time_action(void *data, int button)
 		}
 		break;
 	case KEY_ENTER:
-	case KEY_CANCEL:
 		eeprom_write_slot(slot_idx);
 		break;
 	}
@@ -1009,12 +1040,6 @@ void disp_running(Time t)
 	print_time(t);
 }
 
-void radio_send(cf_cmd_resp_t *resp)
-{
-	radio.stopListening();
-	radio.write(resp, sizeof(*resp));
-	radio.startListening();
-}
 
 void time_set(byte hour, byte min)
 {
@@ -1023,112 +1048,8 @@ void time_set(byte hour, byte min)
 	t.hr = hour;
 
 	rtc.time(t);
-	disp_running(t);
 }
 
-/**
- *  Radio
- */
-void handle_radio_cmd(struct cf_cmd_req *req)
-{
-	cf_cmd_resp_t resp;
-        Time t;
-
-	switch (req->type) {
-		case CF_MISC_MANUAL_FEED:
-			feed(req->cmd.qty);
-		break;
-		case CF_TIME_SET:
-			//Serial.println("Setting time");
-			time_set(req->cmd.time.hour, req->cmd.time.min);
-		break;
-		case CF_TIME_GET:
-			t = rtc.time();
-			resp.type = CF_TIME_GET;
-			resp.cmd.time.hour = t.hr;
-			resp.cmd.time.min = t.min;
-			radio_send(&resp);
-		break;
-		case CF_CAL_VALUE_GET:
-			//Serial.println("Getting calibration value");
-			resp.type = CF_CAL_VALUE_GET;
-			resp.cmd.cal_value = grams_per_portion;
-			radio_send(&resp);
-		break;
-		case CF_STAT_GET:
-			//Serial.println("Getting statistics");
-			resp.type = CF_STAT_GET;
-			resp.cmd.stats.total_feed = total_feeding_grams;
-			resp.cmd.stats.blocked = feeder_is_blocked;
-			radio_send(&resp);
-		break;
-		case CF_SLOT_GET_COUNT:
-			//Serial.println("Getting slot count");
-			resp.type = CF_SLOT_GET_COUNT;
-			resp.cmd.slot_count = FEEDING_SLOT_COUNT;
-			radio_send(&resp);
-		break;
-		case CF_SLOT_GET:
-			//Serial.print("Getting slot ");
-			//Serial.println(req->cmd.slotidx);
-			resp.type = CF_SLOT_GET;
-			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
-				return;
-
-			resp.cmd.slot.qty = feeding_slots[req->cmd.slotidx].qty;
-			resp.cmd.slot.hour = feeding_slots[req->cmd.slotidx].hour;
-			resp.cmd.slot.min = feeding_slots[req->cmd.slotidx].min;
-			resp.cmd.slot.enable = feeding_slots[req->cmd.slotidx].enable;
-			radio_send(&resp);
-		break;
-		case CF_SLOT_FEED:
-			//Serial.print("Manual feeding slot ");
-			//Serial.println(req->cmd.slotidx);
-			if (req->cmd.slotidx >= FEEDING_SLOT_COUNT)
-				return;
-
-			if (feeding_slots[req->cmd.slotidx].has_been_fed)
-				return;
-
-			feeding_slots[req->cmd.slotidx].has_been_fed = 1;
-			feed(feeding_slots[req->cmd.slotidx].qty);
-		break;
-		case CF_SLOT_SET:
-			//Serial.print("Setting slot ");
-			//Serial.println(req->cmd.slot.idx);
-			if (req->cmd.slot.idx >= FEEDING_SLOT_COUNT)
-				return;
-
-			feeding_slots[req->cmd.slot.idx].qty = req->cmd.slot.qty; 
-			feeding_slots[req->cmd.slot.idx].hour = req->cmd.slot.hour; 
-			feeding_slots[req->cmd.slot.idx].min = req->cmd.slot.min; 
-			feeding_slots[req->cmd.slot.idx].enable = req->cmd.slot.enable;
-			eeprom_write_slot(req->cmd.slot.idx);
-		break;
-		default:
-		break;
-	}
-}
-
-void radio_handle()
-{
-	uint8_t len;
-	cf_cmd_req_t *req;
-	uint8_t buff[(uint8_t) -1];
-	req = (cf_cmd_req_t *) buff;
-
-	while (radio.available()) {
-		len = radio.getDynamicPayloadSize();
-		//Serial.print("Received message over radio, len:");
-		//Serial.println(len);
-
-		radio.read(buff, len);
-		/* Discard the message if unexpected length */
-		if (len != sizeof(struct cf_cmd_req))
-			continue;
-		handle_radio_cmd(req);
-	}
-}
 
 /**
  *  Main loop
@@ -1139,13 +1060,15 @@ static unsigned long last_millis = 0;
 
 void loop()
 {	
-	Time t;
+	Time t(0,0,0,0,0,0, Time::kSunday);
 	int i;
 
 	if ((millis() - last_millis) > TIME_CHECKING) {
 		last_millis = millis();
-		
+	
 		t = rtc.time();
+		cur_hour = t.hr;
+		cur_minutes = t.min;
 		/* Reset the slots */
 		if (last_day != t.day) {
 			last_day = t.day;
@@ -1162,10 +1085,6 @@ void loop()
 		handle_menu(&main_menu);
 		t = rtc.time();
 		disp_running(t);
-	}
-	
-	if (radio.available()) {
-		radio_handle();
 	}
 
 	delay(100);
