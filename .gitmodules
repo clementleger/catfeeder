@@ -1,0 +1,3 @@
+[submodule "hw/kicad-ESP8266"]
+	path = hw/kicad-ESP8266
+	url = git@github.com:clementleger/kicad-ESP8266.git
