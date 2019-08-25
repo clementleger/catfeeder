@@ -307,8 +307,6 @@ Text Label 1850 4300 2    60   ~ 0
 I2C_SDA
 Wire Wire Line
 	2650 4300 2200 4300
-Wire Wire Line
-	4200 6100 3950 6100
 Text Label 4300 6200 0    60   ~ 0
 MOT2_STEP
 Wire Wire Line
@@ -717,7 +715,7 @@ F 3 "" H 6700 5050 50  0001 C CNN
 $EndComp
 Text Label 4000 4400 0    60   ~ 0
 LCD_INT
-Text Label 4200 6100 0    60   ~ 0
+Text Label 4200 6900 0    60   ~ 0
 LCD_INT
 $Comp
 L Transistor_FET:IRLML6402 Q1
@@ -896,26 +894,6 @@ Wire Wire Line
 	6100 2350 6400 2350
 Text Label 4200 6600 0    60   ~ 0
 MOT_ENABLE
-Wire Wire Line
-	4000 4400 3850 4400
-$Comp
-L catfeeder_v2-rescue:R R5
-U 1 1 5D63CAC2
-P 3850 4550
-F 0 "R5" H 3920 4596 50  0000 L CNN
-F 1 "R" H 3920 4505 50  0000 L CNN
-F 2 "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal" V 3780 4550 50  0001 C CNN
-F 3 "" H 3850 4550 50  0001 C CNN
-	1    3850 4550
-	1    0    0    -1  
-$EndComp
-Connection ~ 3850 4400
-Wire Wire Line
-	3850 4400 3150 4400
-Wire Wire Line
-	3850 4700 4450 4700
-Wire Wire Line
-	4450 4700 4450 4200
 $Comp
 L catfeeder_v2-rescue:R R3
 U 1 1 5D64EC34
@@ -966,17 +944,6 @@ F 3 "" H 3850 4000 50  0001 C CNN
 	1    3850 4000
 	1    0    0    -1  
 $EndComp
-$Comp
-L power:+3.3V #PWR010
-U 1 1 5D65AC1F
-P 4450 4200
-F 0 "#PWR010" H 4450 4050 50  0001 C CNN
-F 1 "+3.3V" H 4465 4373 50  0000 C CNN
-F 2 "" H 4450 4200 50  0001 C CNN
-F 3 "" H 4450 4200 50  0001 C CNN
-	1    4450 4200
-	1    0    0    -1  
-$EndComp
 NoConn ~ 2350 5900
 NoConn ~ 2350 6000
 NoConn ~ 2350 6200
@@ -987,6 +954,10 @@ NoConn ~ 2350 6600
 NoConn ~ 2350 6900
 NoConn ~ 2350 7000
 NoConn ~ 3950 7000
-NoConn ~ 3950 6900
 NoConn ~ 9100 -900
+Wire Wire Line
+	3950 6900 4200 6900
+NoConn ~ 3950 6100
+Wire Wire Line
+	3150 4400 4000 4400
 $EndSCHEMATC
