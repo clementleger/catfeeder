@@ -208,7 +208,7 @@ public:
     
     void setCursor(uint8_t Line, uint8_t Col );
     */
-	void setCursor(uint8_t Line, uint8_t Col );
+	void setCursor(uint8_t Col, uint8_t Line);
 	
 	//
    // EXPANDED FUNCTIONALITY METHODS

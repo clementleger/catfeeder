@@ -116,10 +116,7 @@ ST7036::ST7036(uint8_t num_lines, uint8_t num_col,
 // Functions: modifiers (set), selectors (get) and class methods
 // ---------------------------------------------------------------------------
 void ST7036::init () 
-{
-   // Initialise the Wire library.
-   Wire.begin();
-   
+{   
    Wire.beginTransmission ( _i2cAddress );
    Wire.write ( 0x00 );   // Send command to the display
    Wire.write ( FUNC_SET_TBL0 );
@@ -251,7 +248,7 @@ void ST7036::blink_off()
 }
 
 
-void ST7036::setCursor(uint8_t line_num, uint8_t x)
+void ST7036::setCursor(uint8_t x, uint8_t line_num)
 {
    uint8_t base = 0x00;
    
