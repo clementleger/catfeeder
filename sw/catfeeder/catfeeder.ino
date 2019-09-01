@@ -22,6 +22,9 @@
 
 #define CATFEEDER_VERSION	0x01
 
+#define UTC_TIME_OFFSET		(1 * 3600)
+#define UTC_DAYLIGHT_OFFSET	(3600)
+
 /**
  * Configuration
  */
@@ -366,18 +369,6 @@ void eeprom_read_slot(int slot)
 	feeding_slots[slot].has_been_fed = 0; 
 }
 
-void print_time()
-{	
-	//~ if (t.hr < 10)
-		//~ lcd.print("0");
-	//~ lcd.print(t.hr);
-	//~ lcd.print(":");
-	//~ if (t.min < 10)
-		//~ lcd.print("0");
-	//~ lcd.print(t.min);
-}
-
-
 /**
  * Actions
  */
@@ -653,6 +644,20 @@ button_t button_pressed()
 	return BUTTON_NONE;
 }
 
+static void print_time()
+{
+	time_t now = time(nullptr);
+	const tm *t = gmtime(&now);
+
+	if (t->tm_hour < 10)
+		lcd.print("0");
+	lcd.print(t->tm_hour);
+	lcd.print(":");
+	if (t->tm_min < 10)
+		lcd.print("0");
+	lcd.print(t->tm_min);
+}
+
 void disp_running()
 {
 	lcd_reset();
@@ -664,6 +669,7 @@ void disp_running()
 		lcd.print("<Running>");
 	}
 	lcd.setCursor(5, 1);
+	print_time();
 }
 
 void lcd_reset()
@@ -901,10 +907,12 @@ void setup()
 		delay(500);
 	}
 
-	configTime(3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-	while (!time(nullptr)) {
+	lcd.setCursor(0, 0);
+	lcd.print("Fetching time...");
+	configTime(UTC_TIME_OFFSET, UTC_DAYLIGHT_OFFSET, "pool.ntp.org", "time.nist.gov");
+	while (time(nullptr) <= 100000) {
 		Serial.print(".");
-		delay(1000);
+		delay(500);
 	}
 
 	eeprom_init();
@@ -915,9 +923,27 @@ void setup()
 	lcd_backlight_set(0);
 }
 
+static unsigned long last_disp_millis = 0;
+
 void loop()
 {
 	if (button_pressed() == BUTTON_OK) {
 		disp_handle_menu();
+	}
+
+	if ((millis() - last_disp_millis) > TIME_CHECKING) {
+		last_disp_millis = millis();
+	
+		//~ cur_hour = t.hr;
+		//~ cur_minutes = t.min;
+		//~ /* Reset the slots */
+		//~ if (last_day != t.day) {
+			//~ last_day = t.day;
+			//~ for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
+				//~ feeding_slots[i].has_been_fed = 0;
+			//~ }
+		//~ }
+
+		disp_running();
 	}
 }
