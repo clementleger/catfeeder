@@ -5,6 +5,7 @@
 #include <ST7036.h>
 #include <Wire.h>
 #include <time.h>
+#include <EEPROM.h>
 #include "wifi_params.h"
 
 #define LCD_WIDTH	16
@@ -18,6 +19,8 @@
 #ifndef __unused
 #define __unused __attribute__ ((unused))
 #endif
+
+#define CATFEEDER_VERSION	0x01
 
 /**
  * Configuration
@@ -46,6 +49,8 @@
 #define EEPROM_TOTAL_GRAM_ADDR	0x1
 #define EEPROM_GPP_ADDR		(EEPROM_TOTAL_GRAM_ADDR + sizeof(total_feeding_grams))
 #define EEPROM_SLOT_CONF_ADDR	(EEPROM_GPP_ADDR + sizeof(grams_per_portion))
+
+#define EEPROM_TOTAL_SIZE (EEPROM_SLOT_CONF_ADDR + FEEDING_SLOT_COUNT * sizeof(struct feeding_slot))
 
 #define TIME_INCREMENT	15
 
@@ -327,53 +332,38 @@ struct menu main_menu = {
  *  EEPROM
  */
 void eeprom_write_total_qty()
-{	
-	//~ eeprom_write_block(&total_feeding_grams, (void *) (EEPROM_TOTAL_GRAM_ADDR), sizeof(float));
+{
+	EEPROM.put(EEPROM_TOTAL_GRAM_ADDR, total_feeding_grams);
 }
 
 void eeprom_read_total_qty()
 {
-	//~ eeprom_read_block(&total_feeding_grams, (void *) (EEPROM_TOTAL_GRAM_ADDR), sizeof (float));
+	EEPROM.get(EEPROM_TOTAL_GRAM_ADDR, total_feeding_grams);
 }
 
 void eeprom_write_gram_per_portion()
 {
-	//~ eeprom_write_block(&grams_per_portion, (void *) (EEPROM_GPP_ADDR), sizeof(float));
+	EEPROM.put(EEPROM_GPP_ADDR, grams_per_portion);
 }
 
 void eeprom_read_gram_per_portion()
 {
-	//~ eeprom_read_block(&grams_per_portion, (void *) (EEPROM_GPP_ADDR), sizeof(float));
+	EEPROM.get(EEPROM_GPP_ADDR, grams_per_portion);
 }
 
-
-void eeprom_write_slot(__unused int slot)
+void eeprom_write_slot(int slot)
 {
-	//~ byte tmp;
-	//~ unsigned long addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
+	unsigned int addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
 
-	//~ if (EEPROM.read(addr) != feeding_slots[slot].hour)
-		//~ EEPROM.write(addr, feeding_slots[slot].hour);
-	//~ addr++;
-	//~ if (EEPROM.read(addr) != feeding_slots[slot].min)
-		//~ EEPROM.write(addr, feeding_slots[slot].min);
-	//~ addr++;
-	//~ if (EEPROM.read(addr) != feeding_slots[slot].enable)
-		//~ EEPROM.write(addr, feeding_slots[slot].enable);
-	//~ addr++;
-	//~ if (EEPROM.read(addr) != feeding_slots[slot].qty)
-		//~ EEPROM.write(addr, feeding_slots[slot].qty);
+	EEPROM.put(addr, feeding_slots[slot]);
 }
 
-void eeprom_read_slot(__unused int slot)
+void eeprom_read_slot(int slot)
 {
-	//~ unsigned long addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
+	unsigned long addr = EEPROM_SLOT_CONF_ADDR + slot * sizeof(struct feeding_slot);
 
-	//~ feeding_slots[slot].hour = EEPROM.read(addr++);
-	//~ feeding_slots[slot].min = EEPROM.read(addr++);
-	//~ feeding_slots[slot].enable = EEPROM.read(addr++);
-	//~ feeding_slots[slot].qty = EEPROM.read(addr);
-	//~ feeding_slots[slot].has_been_fed = 0; 
+	EEPROM.get(addr, feeding_slots[slot]);
+	feeding_slots[slot].has_been_fed = 0; 
 }
 
 void print_time()
@@ -387,32 +377,6 @@ void print_time()
 	//~ lcd.print(t.min);
 }
 
-/**
- *  Init
- */
-void eeprom_init()
-{
-	//~ int i;
-
-	//Serial.println("Init EEPROM");
-	//~ if (EEPROM.read(EEPROM_VERSION_ADDR) != CATFEEDER_VERSION) {
-		//~ EEPROM.write(EEPROM_VERSION_ADDR, CATFEEDER_VERSION);
-
-		//~ eeprom_write_total_qty();
-		//~ eeprom_write_gram_per_portion();
-
-		//~ for (i = 0; i < FEEDING_SLOT_COUNT; i++)
-			//~ eeprom_write_slot(i);
-	//~ } else {
-		
-		//~ eeprom_read_total_qty();
-		//~ eeprom_read_gram_per_portion();
-
-		//~ for (i = 0; i < FEEDING_SLOT_COUNT; i++)
-			//~ eeprom_read_slot(i);
-	//~ }
-	//Serial.println("Init EEPROM Done");
-}
 
 /**
  * Actions
@@ -691,7 +655,7 @@ button_t button_pressed()
 
 void disp_running()
 {
-        lcd_reset();
+	lcd_reset();
 	if (feeder_is_blocked) {
 		lcd.setCursor(1, 0);
 		lcd.print("<! Blocked !>");
@@ -708,6 +672,11 @@ void lcd_reset()
 	lcd.setCursor(0, 0);
 }
 
+void lcd_backlight_set(int enable)
+{
+	ioport.digitalWrite(13, enable);
+}
+
 /**
  * Menu handling
  */
@@ -715,41 +684,50 @@ void lcd_reset()
 void display_lcd_menu(struct menu *cur_menu, int menu_cur_sel)
 {
 
-        lcd_reset();
-        lcd.print("<");
+	lcd_reset();
+	lcd.print("<");
 	lcd.print(cur_menu->name);
-        lcd.print(">");
+	lcd.print(">");
 
 	lcd.setCursor(0, 1);
-        if (cur_menu->entry_count == 1)
-                lcd.print(" ");
-        else if (menu_cur_sel == 0)
-                lcd.write(CHAR_DOWN);
-        else if (menu_cur_sel == cur_menu->entry_count - 1)
-                lcd.write(CHAR_UP);
-        else
-                lcd.write(CHAR_UPDOWN);
+	if (cur_menu->entry_count == 1)
+		lcd.print(" ");
+	else if (menu_cur_sel == 0)
+		lcd.write(CHAR_DOWN);
+	else if (menu_cur_sel == cur_menu->entry_count - 1)
+		lcd.write(CHAR_UP);
+	else
+		lcd.write(CHAR_UPDOWN);
 
 	lcd.print(cur_menu->entries[menu_cur_sel].name);
 }
+
+
+typedef enum {
+	MENU_DISABLED,
+	MENU_HANDLE,
+	MENU_ACTION,
+} menu_state_t;
+
+static menu_state_t menu_state;
 
 int menu_handle_action(struct menu *cur_menu, int menu_cur_sel)
 {
 	int button = BUTTON_NONE;
 	unsigned long last_press_time;
 	
-        lcd_reset();
-        lcd.print("<");
+	lcd_reset();
+	lcd.print("<");
 	lcd.print(cur_menu->entries[menu_cur_sel].name);
-        lcd.print(">");
+	lcd.print(">");
 
   	do {
 		ESP.wdtFeed();
 		lcd.setCursor(0, 1);
-		lcd.print("                ");
+		lcd.print("		");
 		lcd.setCursor(0, 1);
 		cur_menu->entries[menu_cur_sel].display(cur_menu->data) ;
-                delay(50);
+		delay(50);
 		last_press_time = millis();
 		do {
 			ESP.wdtFeed();
@@ -771,44 +749,53 @@ void handle_menu(struct menu *cur_menu)
 	int menu_cur_sel = 0;
 	unsigned long last_press_time;
 	
-	ioport.digitalWrite(13, 1);
 	do {
 		ESP.wdtFeed();
-                display_lcd_menu(cur_menu, menu_cur_sel);
-                delay(100);
+		display_lcd_menu(cur_menu, menu_cur_sel);
+		delay(100);
 		last_press_time = millis();
 		do {
 			ESP.wdtFeed();
 			button = button_pressed();
 			if ((millis() - last_press_time) > MENU_TIMEOUT)
-				goto out;
+				return;
 		} while(button == BUTTON_NONE);
 
 		switch (button) {
 			case BUTTON_OK:
 				if (cur_menu->entries[menu_cur_sel].do_action) {
 					if (menu_handle_action(cur_menu, menu_cur_sel)) {
-				goto out;
+				return;
 					}
 				} else if (cur_menu->entries[menu_cur_sel].sub_menu) {
 					handle_menu(cur_menu->entries[menu_cur_sel].sub_menu);
 				}
 				break;
-                        case BUTTON_LEFT:
-				goto out;
+			case BUTTON_LEFT:
+				return;
 			case BUTTON_UP:
 				if (menu_cur_sel > 0)
 					menu_cur_sel--;
 				break;
 			case BUTTON_DOWN:
 				menu_cur_sel++;
-                                if (menu_cur_sel == cur_menu->entry_count)
-                                        menu_cur_sel = cur_menu->entry_count - 1;
+				if (menu_cur_sel == cur_menu->entry_count)
+					menu_cur_sel = cur_menu->entry_count - 1;
 				break;
 		}
 	} while(1);
-out:
-	ioport.digitalWrite(13, 0);
+}
+
+void disp_handle_menu()
+{
+	
+	lcd_backlight_set(1);
+	handle_menu(&main_menu);
+	lcd_backlight_set(0);
+
+	disp_running();
+	/* Content of eeprom might have been modified during menu handling */
+	EEPROM.commit();
 }
 
 /**
@@ -842,6 +829,36 @@ void feed(int part)
 }
 
 /**
+ *  Init
+ */
+static void eeprom_init()
+{
+	int i;
+
+	Serial.println("Init EEPROM");
+
+	EEPROM.begin(EEPROM_TOTAL_SIZE);
+
+	if (EEPROM.read(EEPROM_VERSION_ADDR) != CATFEEDER_VERSION) {
+		EEPROM.write(EEPROM_VERSION_ADDR, CATFEEDER_VERSION);
+
+		eeprom_write_total_qty();
+		eeprom_write_gram_per_portion();
+
+		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
+			eeprom_write_slot(i);
+	} else {
+		
+		eeprom_read_total_qty();
+		eeprom_read_gram_per_portion();
+
+		for (i = 0; i < FEEDING_SLOT_COUNT; i++)
+			eeprom_read_slot(i);
+	}
+	Serial.println("Init EEPROM Done");
+}
+
+/**
  * Setup and loop
  */
 void setup()
@@ -865,7 +882,7 @@ void setup()
 	/* Setup backlight pin */
 	ioport.pinMode(13, OUTPUT);
 
-	ioport.digitalWrite(13, 0);
+	lcd_backlight_set(1);
 
 	lcd.init();
 	lcd.blink_on();
@@ -890,27 +907,17 @@ void setup()
 		delay(1000);
 	}
 
+	eeprom_init();
+
 	disp_running();
 	Serial.println("Setup done\n");
+	delay(1000);
+	lcd_backlight_set(0);
 }
 
 void loop()
 {
 	if (button_pressed() == BUTTON_OK) {
-		Serial.println("Button pressed");
-		handle_menu(&main_menu);
-		//~ t = rtc.time();
-		disp_running();
+		disp_handle_menu();
 	}
-
-	//~ if (button_pressed()) {		
-		//~ ioport.digitalWrite(13, 1);
-		//~ start_time = millis();
-		//~ digitalWrite(D0, 1);
-	//~ }
-
-	//~ if (millis() - start_time > 4000) {
-		//~ ioport.digitalWrite(13, 0);
-		//~ digitalWrite(D0, 0);
-	//~ }
 }
