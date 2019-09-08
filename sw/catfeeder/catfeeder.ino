@@ -1,10 +1,13 @@
 #include <Arduino.h>
 
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
 #include <clsPCA9555.h>
 #include <ST7036.h>
 #include <Wire.h>
 #include <time.h>
+#include <DRV8825.h>
 #include <EEPROM.h>
 #include "wifi_params.h"
 
@@ -20,6 +23,7 @@
 #define __unused __attribute__ ((unused))
 #endif
 
+#define CATFEEDER_DNS_NAME	"catfeeder"
 #define CATFEEDER_VERSION	0x01
 
 #define UTC_TIME_OFFSET		(1 * 3600)
@@ -28,6 +32,7 @@
 /**
  * Configuration
  */
+#define IR_SENSOR_PIN		A0
 #define BEEPER_PIN		D0
 #define UART_SPEED		115200
 
@@ -42,12 +47,27 @@
 
 #define SEC_TO_MILLI		1000
 #define MENU_TIMEOUT		(15 * SEC_TO_MILLI)
-#define TIME_CHECKING		(10 * SEC_TO_MILLI)
+#define TIME_CHECKING		(1 * SEC_TO_MILLI)
+
+#define FOOD_LEVEL_LOW_VAL	1024
+
+/**
+ * MOTOR
+ */
+
+#define MOTOR_STEPS		200
+#define MOTOR_MICROSTEPS	1
+#define MOTOR_SPEED_RPM		60
+#define MOTOR_FEED_RATIO	1
+#define MOTOR_EN_PIN		D6
+#define MOTOR1_DIR_PIN		D8
+#define MOTOR1_STEP_PIN		D7
+#define MOTOR2_DIR_PIN		D5
+#define MOTOR2_STEP_PIN		D4
 
 /**
  * EEPROM
  */
-
 #define EEPROM_VERSION_ADDR	0x0
 #define EEPROM_TOTAL_GRAM_ADDR	0x1
 #define EEPROM_GPP_ADDR		(EEPROM_TOTAL_GRAM_ADDR + sizeof(total_feeding_grams))
@@ -103,6 +123,13 @@ byte down[8] = {
 
 PCA9555 ioport(0x20);
 ST7036 lcd(LCD_HEIGHT, LCD_WIDTH, 0x3E);
+ESP8266WebServer server(80);
+DRV8825 stepper(MOTOR_STEPS, MOTOR1_DIR_PIN, MOTOR1_STEP_PIN, MOTOR_EN_PIN);
+
+typedef enum {
+	FOOD_LEVEL_NORMAL,
+	FOOD_LEVEL_LOW,
+} food_level_t;
 
 typedef enum {
 	BUTTON_NONE = 0,
@@ -117,8 +144,9 @@ typedef enum {
 typedef enum {
 	STAT_TOTAL_QTY = 0,
 	STAT_GRAMS_PER_DAY = 1,
-	STAT_BLOCKED = 2,
-	STAT_COUNT = 3,
+	STAT_LEVEL = 2,
+	STAT_BLOCKED = 3,
+	STAT_COUNT = 4,
 } stat_t;
 
 static float total_feeding_grams = 0;
@@ -331,6 +359,66 @@ struct menu main_menu = {
 	NULL,
 };
 
+static const char *food_level_str[] = {
+	[FOOD_LEVEL_NORMAL] = "Normal",
+	[FOOD_LEVEL_LOW] = "Low",
+};
+
+/**
+ * Food related
+ */
+
+static food_level_t get_food_level()
+{
+	int val = analogRead(IR_SENSOR_PIN);
+
+	if (val >= FOOD_LEVEL_LOW_VAL)
+		return FOOD_LEVEL_LOW;
+
+	return FOOD_LEVEL_NORMAL;
+}
+
+static void feed(int part)
+{
+	int orig_part = part;
+	if (part == 0)	
+		return;
+
+	lcd_reset();
+
+	if (feeder_is_blocked) {
+		lcd.print("<Blocked !>");
+		delay(1000);
+		return;
+	}
+
+	lcd.print("<Feeding>");
+
+	lcd.setCursor(0, 1);
+	lcd.print(orig_part * grams_per_portion, 1);
+	lcd.print(" grams");
+
+	stepper.enable();
+
+	stepper.startRotate(part * 360 * MOTOR_FEED_RATIO);
+
+	do {
+		if (button_pressed()) {
+			stepper.stop();
+			goto out;
+		}
+	} while(stepper.nextAction() > 0);
+
+	total_feeding_grams += orig_part * grams_per_portion;
+
+	eeprom_write_total_qty();
+
+out:
+	stepper.disable();
+	lcd_reset();
+
+}
+
 /**
  *  EEPROM
  */
@@ -367,6 +455,50 @@ void eeprom_read_slot(int slot)
 
 	EEPROM.get(addr, feeding_slots[slot]);
 	feeding_slots[slot].has_been_fed = 0; 
+}
+
+/**
+ * Web server
+ */
+
+static void server_handle_root()
+{
+	server.send(200, "text/plain", "hello from esp8266!");
+}
+
+static void server_handle_level()
+{
+	String message = "Level: ";
+	message += food_level_str[get_food_level()];
+	message += "\n";
+
+	server.send(200, "text/plain", message);
+}
+
+static void server_handle_feed()
+{
+	String message = "File Not Found\n\n";
+	server.send(404, "text/plain", message);
+}
+
+static void server_handle_not_found()
+{
+	String message = "File Not Found\n\n";
+	server.send(404, "text/plain", message);
+}
+
+static void server_init()
+{
+
+	if (MDNS.begin(CATFEEDER_DNS_NAME))
+		Serial.println("MDNS responder started");
+
+	server.on("/", server_handle_root);
+	server.on("/level", server_handle_level);
+	server.on("/feed", server_handle_feed);
+	server.onNotFound(server_handle_not_found);
+	server.begin();
+
 }
 
 /**
@@ -449,13 +581,16 @@ static byte cur_stat = 0;
 void stat_display(__unused void *data) 
 {
 	float tmp = 0;
+
+	lcd.print("                ");
+	lcd.setCursor(0, 1);
 	if (cur_stat == 0)
 		lcd.write(CHAR_DOWN);
 	else if (cur_stat == (STAT_COUNT - 1))
 		lcd.write(CHAR_UP);
 	else
 		lcd.write(CHAR_UPDOWN);
-		
+
 	switch (cur_stat) {
 		case STAT_TOTAL_QTY:
 			lcd.print("Total: ");
@@ -468,6 +603,10 @@ void stat_display(__unused void *data)
 				tmp += (feeding_slots[i].qty * grams_per_portion);
 			lcd.print(tmp, 1);
 			lcd.print(" g");
+			break;
+		case STAT_LEVEL:
+			lcd.print("Level: ");
+			lcd.print(analogRead(IR_SENSOR_PIN));
 			break;
 		case STAT_BLOCKED:
 			lcd.print("Blocked: ");
@@ -678,10 +817,50 @@ void lcd_reset()
 	lcd.setCursor(0, 0);
 }
 
-void lcd_backlight_set(int enable)
+static void lcd_backlight_set(int enable)
 {
 	ioport.digitalWrite(13, enable);
 }
+
+
+int check_feeding_slot(const tm *t, int slot)
+{
+	if (!feeding_slots[slot].enable || feeding_slots[slot].has_been_fed == 1)
+		return 0;
+	
+	if (feeding_slots[slot].hour != t->tm_hour ||
+		feeding_slots[slot].min != t->tm_min)
+		return 0;
+
+	feeding_slots[slot].has_been_fed = 1;
+	//~ feed(feeding_slots[slot].qty);
+
+	return 1;
+}
+
+
+static int last_day = -1;
+
+static void check_feeding()
+{
+	int i;
+	time_t now = time(nullptr);
+	const tm *t = gmtime(&now);
+
+	/* Reset the slots if new day */
+	if (last_day != t->tm_yday) {
+		last_day = t->tm_yday;
+		for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
+			feeding_slots[i].has_been_fed = 0;
+		}
+	}
+
+	for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
+		if (check_feeding_slot(t, i))
+			break;
+	}
+}
+
 
 /**
  * Menu handling
@@ -771,7 +950,7 @@ void handle_menu(struct menu *cur_menu)
 			case BUTTON_OK:
 				if (cur_menu->entries[menu_cur_sel].do_action) {
 					if (menu_handle_action(cur_menu, menu_cur_sel)) {
-				return;
+						return;
 					}
 				} else if (cur_menu->entries[menu_cur_sel].sub_menu) {
 					handle_menu(cur_menu->entries[menu_cur_sel].sub_menu);
@@ -802,36 +981,6 @@ void disp_handle_menu()
 	disp_running();
 	/* Content of eeprom might have been modified during menu handling */
 	EEPROM.commit();
-}
-
-/**
- * Feed the beast
- */
- 
-void feed(int part)
-{
-	int orig_part = part;
-
-	if (part == 0)	
-		return;
-		
-	lcd_reset();
-
-	if (feeder_is_blocked) {
-		lcd.print("<Blocked !>");
-		delay(1000);
-		return;
-	}
-
-	lcd.print("<Feeding>");
-
-	lcd.setCursor(0, 1);
-	lcd.print(orig_part * grams_per_portion, 1);
-	lcd.print(" grams");
-
-	eeprom_write_total_qty();
-
-	lcd_reset();
 }
 
 /**
@@ -879,6 +1028,10 @@ void setup()
 	pinMode(BEEPER_PIN, OUTPUT);
 	digitalWrite(BEEPER_PIN, 0);
 
+	/* Setup analog in */
+	pinMode(IR_SENSOR_PIN, INPUT);
+
+	stepper.begin(MOTOR_SPEED_RPM, MOTOR_MICROSTEPS);
 	Wire.begin();
 
 	/* Setup IO expander */
@@ -901,7 +1054,7 @@ void setup()
 	lcd.load_custom_character(CHAR_UPDOWN, updown);
 	lcd.load_custom_character(CHAR_DOWN, down);
 
-	lcd.setCursor(0, 0);
+	lcd_reset();
 	lcd.print("Connecting...");
 	while(WiFi.status() != WL_CONNECTED){
 		delay(500);
@@ -916,7 +1069,10 @@ void setup()
 	}
 
 	eeprom_init();
-
+	lcd_reset();
+	lcd.print("Starting server ");
+	server_init();
+  
 	disp_running();
 	Serial.println("Setup done\n");
 	delay(1000);
@@ -927,22 +1083,17 @@ static unsigned long last_disp_millis = 0;
 
 void loop()
 {
+	server.handleClient();
+	MDNS.update();
+
 	if (button_pressed() == BUTTON_OK) {
 		disp_handle_menu();
 	}
 
 	if ((millis() - last_disp_millis) > TIME_CHECKING) {
 		last_disp_millis = millis();
-	
-		//~ cur_hour = t.hr;
-		//~ cur_minutes = t.min;
-		//~ /* Reset the slots */
-		//~ if (last_day != t.day) {
-			//~ last_day = t.day;
-			//~ for (i = 0; i < FEEDING_SLOT_COUNT; i++) {
-				//~ feeding_slots[i].has_been_fed = 0;
-			//~ }
-		//~ }
+
+		check_feeding();
 
 		disp_running();
 	}
