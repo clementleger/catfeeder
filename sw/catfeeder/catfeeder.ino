@@ -384,6 +384,7 @@ static void feed(int part)
 	if (part == 0)	
 		return;
 
+	lcd_backlight_set(1);
 	lcd_reset();
 
 	if (feeder_is_blocked) {
@@ -403,6 +404,7 @@ static void feed(int part)
 	stepper.startRotate(part * 360 * MOTOR_FEED_RATIO);
 
 	do {
+		ESP.wdtFeed();
 		if (button_pressed()) {
 			stepper.stop();
 			goto out;
@@ -416,6 +418,7 @@ static void feed(int part)
 out:
 	stepper.disable();
 	lcd_reset();
+	lcd_backlight_set(0);
 
 }
 
@@ -461,9 +464,11 @@ void eeprom_read_slot(int slot)
  * Web server
  */
 
+int server_feed_parts = 0;
+
 static void server_handle_root()
 {
-	server.send(200, "text/plain", "hello from esp8266!");
+	server.send(200, "text/plain", "catfeeder is online!");
 }
 
 static void server_handle_level()
@@ -477,8 +482,18 @@ static void server_handle_level()
 
 static void server_handle_feed()
 {
-	String message = "File Not Found\n\n";
-	server.send(404, "text/plain", message);
+	if (!server.hasArg("quantity")) {
+		String message = "Missing parameter";
+		server.send(400, "text/plain", message);
+	} else {
+		String quantity = server.arg("quantity");
+		String message = "Feeding ";
+		message += quantity;
+		message += " parts\n";
+		server.send(200, "text/plain", message);
+
+		server_feed_parts = quantity.toInt();
+	}
 }
 
 static void server_handle_not_found()
@@ -1096,5 +1111,10 @@ void loop()
 		check_feeding();
 
 		disp_running();
+	}
+
+	if (server_feed_parts != 0) {
+		feed(server_feed_parts);
+		server_feed_parts = 0;
 	}
 }
