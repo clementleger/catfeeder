@@ -55,15 +55,18 @@
  * MOTOR
  */
 
+#define MOTOR_ACCEL		2000
+#define MOTOR_DECEL		1000
 #define MOTOR_STEPS		200
 #define MOTOR_MICROSTEPS	1
-#define MOTOR_SPEED_RPM		60
-#define MOTOR_FEED_RATIO	1
+#define MOTOR_SPEED_RPM		120
+#define MOTOR_FEED_RATIO	20
 #define MOTOR_EN_PIN		D6
 #define MOTOR1_DIR_PIN		D8
 #define MOTOR1_STEP_PIN		D7
 #define MOTOR2_DIR_PIN		D5
 #define MOTOR2_STEP_PIN		D4
+
 
 /**
  * EEPROM
@@ -384,7 +387,6 @@ static void feed(int part)
 	if (part == 0)	
 		return;
 
-	lcd_backlight_set(1);
 	lcd_reset();
 
 	if (feeder_is_blocked) {
@@ -418,8 +420,6 @@ static void feed(int part)
 out:
 	stepper.disable();
 	lcd_reset();
-	lcd_backlight_set(0);
-
 }
 
 /**
@@ -837,6 +837,12 @@ static void lcd_backlight_set(int enable)
 	ioport.digitalWrite(13, enable);
 }
 
+static void direct_feed(int part)
+{
+	lcd_backlight_set(1);
+	feed(part);
+	lcd_backlight_set(0);
+}
 
 int check_feeding_slot(const tm *t, int slot)
 {
@@ -848,7 +854,7 @@ int check_feeding_slot(const tm *t, int slot)
 		return 0;
 
 	feeding_slots[slot].has_been_fed = 1;
-	//~ feed(feeding_slots[slot].qty);
+	direct_feed(feeding_slots[slot].qty);
 
 	return 1;
 }
@@ -1047,6 +1053,8 @@ void setup()
 	pinMode(IR_SENSOR_PIN, INPUT);
 
 	stepper.begin(MOTOR_SPEED_RPM, MOTOR_MICROSTEPS);
+	stepper.setEnableActiveState(LOW);
+	stepper.setSpeedProfile(stepper.LINEAR_SPEED, MOTOR_ACCEL, MOTOR_DECEL);
 	Wire.begin();
 
 	/* Setup IO expander */
@@ -1114,7 +1122,7 @@ void loop()
 	}
 
 	if (server_feed_parts != 0) {
-		feed(server_feed_parts);
+		direct_feed(server_feed_parts);
 		server_feed_parts = 0;
 	}
 }
